@@ -1,0 +1,30 @@
+{
+  "name": "cyberai-bot",
+  "version": "1.0.0",
+  "description": "CyberAI Discord bot for ethical cybersecurity learning using Gemini",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "register": "node src/registerCommands.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "cybersecurity",
+    "gemini",
+    "education"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "discord.js": "^14.17.3",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
