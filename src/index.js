@@ -15,16 +15,18 @@ const client = new Client({
 
 const commandsDir = path.join(__dirname, 'commands');
 client.commands = loadCommands(commandsDir);
+const gemini = new GeminiService({
+  apiKey: config.gemini.apiKey,
+  model: config.gemini.model,
+  fallbackModels: config.gemini.fallbackModels,
+  maxRetries: config.gemini.maxRetries,
+  retryBaseMs: config.gemini.retryBaseMs,
+  logger
+});
+
 client.services = {
-  gemini: new GeminiService({
-    apiKey: config.gemini.apiKey,
-    model: config.gemini.model,
-    fallbackModels: config.gemini.fallbackModels,
-    maxRetries: config.gemini.maxRetries,
-    retryBaseMs: config.gemini.retryBaseMs,
-    logger
-  }),
-  news: new NewsService({ logger }),
+  gemini,
+  news: new NewsService({ logger, gemini }),
   labsSearch: new LabsSearchService({ apiKey: config.serper.apiKey, logger })
 };
 client.rateLimiter = new RateLimiter(config.rateLimit);
