@@ -256,6 +256,7 @@ function mergeChunksForReadability(chunks, maxChunks) {
 function smartSplitMessage(input, options = {}) {
   const minChunks = Number.isInteger(options.minChunks) && options.minChunks > 0 ? options.minChunks : 1;
   const maxChunks = Number.isInteger(options.maxChunks) && options.maxChunks >= minChunks ? options.maxChunks : 3;
+  const addPageHeader = options.addPageHeader !== false;
 
   const text = typeof input === 'string' ? input.trim() : '';
   if (!text) return ['No response generated.'];
@@ -279,6 +280,7 @@ function smartSplitMessage(input, options = {}) {
   finalized = mergeChunksForReadability(finalized, maxChunks);
 
   if (finalized.length <= 1) return finalized;
+  if (!addPageHeader) return finalized;
 
   return finalized.map((chunk, index) => {
     const page = `**\u{1F4D8} CyberAI Response (${index + 1}/${finalized.length})**`;
