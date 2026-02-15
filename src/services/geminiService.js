@@ -241,6 +241,8 @@ class GeminiService {
         '- Do not provide steps for real-world unauthorized targets.',
         '- Do not provide malware development, persistence abuse, credential theft playbooks, or stealth evasion instructions for abuse.',
         '- Focus on lab-safe simulation, detection insights, and blue-team mitigation mapping.',
+        '- Keep formatting easy to read in Discord: headings + flat "-" bullets only.',
+        '- No nested lists. No inline bullets inside paragraphs.',
         '- Include a reminder to document findings and obtain written permission.'
       ].join('\n');
     }
@@ -327,6 +329,7 @@ class GeminiService {
       '- Explain jargon before using it in depth.',
       '- Use markdown headings and bullet points.',
       '- Start directly with a heading. Do not add chatty intro lines.',
+      '- Do not add a separate "Disclaimer" section/paragraph. Keep any safety notes short and integrated (no "Disclaimer:" label).',
       '- Keep sections practical, specific, and easy to follow.',
       '- Include actionable safe examples where relevant.',
       '',

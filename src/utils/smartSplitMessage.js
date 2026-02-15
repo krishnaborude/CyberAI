@@ -256,6 +256,8 @@ function mergeChunksForReadability(chunks, maxChunks) {
 function smartSplitMessage(input, options = {}) {
   const minChunks = Number.isInteger(options.minChunks) && options.minChunks > 0 ? options.minChunks : 1;
   const maxChunks = Number.isInteger(options.maxChunks) && options.maxChunks >= minChunks ? options.maxChunks : 3;
+  // Default on: chunk banners help users know the message continues.
+  // Disable explicitly with { addPageHeader: false } if needed.
   const addPageHeader = options.addPageHeader !== false;
 
   const text = typeof input === 'string' ? input.trim() : '';
