@@ -12,11 +12,25 @@ module.exports = {
         .setName('focus')
         .setDescription('Focus area (threat intel, ransomware, cloud, zero-days)')
         .setRequired(false)
+    )
+    .addStringOption((option) =>
+      option
+        .setName('tier')
+        .setDescription('Show only one tier (optional)')
+        .addChoices(
+          { name: 'All', value: 'all' },
+          { name: 'Critical only', value: 'critical' },
+          { name: 'Intermediate only', value: 'intermediate' },
+          { name: 'Basic only', value: 'basic' }
+        )
+        .setRequired(false)
     ),
 
   async execute(ctx) {
-    const rawFocus = ctx.interaction.options.getString('focus') || 'general cybersecurity';
-    const focus = sanitizeUserInput(rawFocus, { maxChars: 120 });
+    const rawFocus = ctx.interaction.options.getString('focus');
+    const focusInput = rawFocus ? sanitizeUserInput(rawFocus, { maxChars: 120 }) : '';
+    const focus = focusInput || 'general cybersecurity';
+    const tier = (ctx.interaction.options.getString('tier') || 'all').toLowerCase();
 
     const validation = validateUserInput(focus, { required: false });
     if (!validation.valid) {
@@ -44,7 +58,9 @@ module.exports = {
 
     await ctx.interaction.deferReply();
 
-    const newsData = await ctx.services.news.getLatestNews({ focus, limit: 7 });
+    // Fetch a larger pool from RSS, then let Gemini select + tier the final items (with heuristic fallback).
+    const seed = await ctx.services.news.getLatestNews({ focus, limit: 24 });
+    const newsData = await ctx.services.news.selectAndEnrich({ ...seed, limit: 7, tier });
     const response = ctx.services.news.formatDigest(newsData);
     const chunks = smartSplitMessage(response);
 
@@ -53,6 +69,7 @@ module.exports = {
     ctx.logger.info('News command completed', {
       userId: ctx.interaction.user.id,
       focus,
+      tier,
       articles: newsData.articles.length,
       chunks: chunks.length
     });

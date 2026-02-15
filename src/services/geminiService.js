@@ -572,6 +572,128 @@ class GeminiService {
 
     return finalList.slice(0, safeLimit);
   }
+
+  // Feed-grounded news selector. Returns a small JSON payload describing chosen links and tiers.
+  // It MUST not invent links: caller validates returned links against the provided list.
+  async rankNewsFromFeed({ focus, articles, limit = 7, tier = 'all' } = {}) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 7, 5), 12);
+    const f = typeof focus === 'string' ? focus.trim() : '';
+    const tierFilter = typeof tier === 'string' ? tier.trim().toLowerCase() : 'all';
+    const list = Array.isArray(articles) ? articles : [];
+
+    const ctx = list.slice(0, 28).map((a) => ({
+      title: typeof a?.title === 'string' ? a.title.trim() : '',
+      link: typeof a?.link === 'string' ? a.link.trim() : '',
+      source: typeof a?.source === 'string' ? a.source.trim() : '',
+      publishedAt: a?.publishedAt instanceof Date && !Number.isNaN(a.publishedAt.getTime()) ? a.publishedAt.toISOString() : '',
+      description: typeof a?.description === 'string' ? a.description.trim() : ''
+    })).filter((a) => a.title && a.link && a.source);
+
+    if (ctx.length === 0) {
+      return { expanded_keywords: [], selected: [] };
+    }
+
+    const allowedLinks = new Set(ctx.map((a) => a.link));
+
+    const tierInstruction = tierFilter === 'critical'
+      ? 'Selection filter: ONLY choose items that should be tier "Critical".'
+      : tierFilter === 'intermediate'
+        ? 'Selection filter: ONLY choose items that should be tier "Intermediate".'
+        : tierFilter === 'basic'
+          ? 'Selection filter: ONLY choose items that should be tier "Basic".'
+          : 'Selection filter: any tier.';
+
+    const prompt = [
+      'You are CyberAI, a cybersecurity news editor.',
+      '',
+      'Task: from the provided RSS items, pick the most relevant stories to the given focus.',
+      'You MUST ONLY use the provided items and MUST NOT invent any new links.',
+      '',
+      'Output rules:',
+      '- Return ONLY valid JSON. No markdown, no extra text.',
+      `- Select up to ${safeLimit} items.`,
+      tierInstruction,
+      '- Try to include a mix of tiers if possible: at least 1 Critical, 1 Intermediate, and 1 Basic (when the pool supports it).',
+      '- For each selected item, output:',
+      '  - link: must match exactly one of the provided links',
+      '  - tier: exactly one of "Critical", "Intermediate", "Basic"',
+      '  - summary: 1 sentence based only on title/description (no guessing)',
+      '  - reason: very short (why it fits the focus or why it is important)',
+      '- Also include expanded_keywords: 5-12 short search terms for this focus (for transparency).',
+      '',
+      'Tier guidance (for zero-days):',
+      '- Critical: actively exploited, in-the-wild, confirmed zero-day exploitation, emergency patches, KEV-like language.',
+      '- Intermediate: patches released, new vulnerability reports, vendor advisories, ICS advisories without confirmed exploitation.',
+      '- Basic: weekly bulletins/roundups or general security coverage not directly about the focus.',
+      '',
+      `Focus: ${f || 'general cybersecurity'}`,
+      '',
+      'Items (JSON):',
+      JSON.stringify(ctx),
+      '',
+      'Return JSON with schema:',
+      '{',
+      '  "expanded_keywords": ["..."],',
+      '  "selected": [',
+      '    { "link": "...", "tier": "Critical|Intermediate|Basic", "summary": "...", "reason": "..." }',
+      '  ]',
+      '}'
+    ].join('\n');
+
+    const raw = await this.callModel(prompt, { maxOutputTokens: 900 });
+
+    let parsed = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      const start = raw.indexOf('{');
+      const end = raw.lastIndexOf('}');
+      if (start >= 0 && end > start) {
+        parsed = JSON.parse(raw.slice(start, end + 1));
+      }
+    }
+
+    const expanded = Array.isArray(parsed?.expanded_keywords)
+      ? parsed.expanded_keywords
+        .map((v) => (typeof v === 'string' ? v.trim() : ''))
+        .filter(Boolean)
+        .slice(0, 16)
+      : [];
+
+    const safeTier = (t) => {
+      const v = typeof t === 'string' ? t.trim().toLowerCase() : '';
+      if (v === 'critical') return 'Critical';
+      if (v === 'intermediate') return 'Intermediate';
+      if (v === 'basic') return 'Basic';
+      return 'Intermediate';
+    };
+
+    const selectedRaw = Array.isArray(parsed?.selected) ? parsed.selected : [];
+    const seen = new Set();
+    const selected = [];
+    for (const item of selectedRaw) {
+      const link = typeof item?.link === 'string' ? item.link.trim() : '';
+      if (!link || !allowedLinks.has(link) || seen.has(link)) continue;
+      seen.add(link);
+      const normalizedTier = safeTier(item?.tier);
+      if (tierFilter === 'critical' && normalizedTier !== 'Critical') continue;
+      if (tierFilter === 'intermediate' && normalizedTier !== 'Intermediate') continue;
+      if (tierFilter === 'basic' && normalizedTier !== 'Basic') continue;
+
+      selected.push({
+        link,
+        tier: normalizedTier,
+        summary: typeof item?.summary === 'string' ? item.summary.trim().slice(0, 260) : '',
+        reason: typeof item?.reason === 'string' ? item.reason.trim().slice(0, 120) : ''
+      });
+      if (selected.length >= safeLimit) break;
+    }
+
+    return {
+      expanded_keywords: expanded,
+      selected
+    };
+  }
 }
 
 module.exports = GeminiService;
