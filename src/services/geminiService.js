@@ -422,6 +422,98 @@ class GeminiService {
       throw new Error('AI service is temporarily unavailable. Please try again shortly.');
     }
   }
+
+  // Search-grounded lab recommender. Returns an array of lab objects (not a user-facing string),
+  // and only allows links that appeared in the search results.
+  async recommendLabsFromSearch({ query, searchContext, limit = 5, diversity = { maxPerPlatform: 2, minPlatforms: 2 } }) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 5, 3), 5);
+    const q = typeof query === 'string' ? query.trim() : '';
+    const ctx = Array.isArray(searchContext) ? searchContext : [];
+
+    const allowedLinks = new Set(ctx.map((r) => r.link).filter(Boolean));
+    const maxPerPlatform = Math.min(Math.max(Number.parseInt(diversity?.maxPerPlatform, 10) || 2, 1), 5);
+    const minPlatforms = Math.min(Math.max(Number.parseInt(diversity?.minPlatforms, 10) || 2, 1), 5);
+
+    const prompt = [
+      'You are a professional cybersecurity training advisor.',
+      '',
+      'Task: recommend real, practical cybersecurity labs based on the user query.',
+      'You MUST use only the provided search results; do not invent lab names or links.',
+      '',
+      'Rules:',
+      '- Recommend 3 to 5 labs related to the query.',
+      '- Prefer platforms: Hack The Box, TryHackMe, PortSwigger Web Security Academy, OWASP.',
+      `- Try to include multiple platforms (at least ${minPlatforms} different platforms if possible).`,
+      `- Do not pick more than ${maxPerPlatform} labs from the same platform unless the search results do not support diversity.`,
+      '- Use realistic labs/rooms/modules/pages from those platforms.',
+      '- Descriptions must be short (2-3 lines max).',
+      '',
+      'Return only valid JSON matching this schema:',
+      '[',
+      '  {',
+      '    "lab_name": "Lab Name Here",',
+      '    "platform": "Platform Name",',
+      '    "link": "Must match exactly one of the provided search result links",',
+      '    "description": "Short description here"',
+      '  }',
+      ']',
+      '',
+      `User Query: ${q || 'general cybersecurity labs'}`,
+      '',
+      `Max labs: ${safeLimit}`,
+      '',
+      'Search Results (JSON):',
+      JSON.stringify(ctx)
+    ].join('\n');
+
+    const raw = await this.callModel(prompt, { maxOutputTokens: 900 });
+
+    let parsed = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // Try to recover JSON if the model wrapped it in text.
+      const start = raw.indexOf('[');
+      const end = raw.lastIndexOf(']');
+      if (start >= 0 && end > start) {
+        parsed = JSON.parse(raw.slice(start, end + 1));
+      }
+    }
+
+    if (!Array.isArray(parsed)) {
+      throw new Error('Model did not return a JSON array for lab recommendations.');
+    }
+
+    const cleaned = parsed
+      .map((item) => ({
+        lab_name: typeof item?.lab_name === 'string' ? item.lab_name.trim() : '',
+        platform: typeof item?.platform === 'string' ? item.platform.trim() : '',
+        link: typeof item?.link === 'string' ? item.link.trim() : '',
+        description: typeof item?.description === 'string' ? item.description.trim() : ''
+      }))
+      .filter((item) => item.lab_name && item.platform && item.link && item.description)
+      .filter((item) => allowedLinks.has(item.link))
+      .slice(0, safeLimit);
+
+    const platformCounts = new Map();
+    const diverse = [];
+    for (const item of cleaned) {
+      const key = item.platform.toLowerCase();
+      const count = platformCounts.get(key) || 0;
+      if (count >= maxPerPlatform) continue;
+      platformCounts.set(key, count + 1);
+      diverse.push(item);
+    }
+
+    // If diversity filtering removed too much, relax the per-platform cap.
+    const finalList = diverse.length >= 3 ? diverse : cleaned;
+
+    if (finalList.length < 3) {
+      throw new Error('Not enough grounded lab recommendations could be validated from search results.');
+    }
+
+    return finalList.slice(0, safeLimit);
+  }
 }
 
 module.exports = GeminiService;
