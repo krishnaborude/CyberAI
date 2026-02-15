@@ -6,6 +6,7 @@ const {
 } = require('./inputGuard');
 const { smartSplitMessage } = require('./smartSplitMessage');
 const { sendChunkedResponse } = require('./discordResponse');
+const { formatResponseByCommand } = require('./formatResponse');
 
 function isGeminiRateLimited(error) {
   const message = error?.message || String(error);
@@ -80,7 +81,8 @@ async function runAICommand({
         appendText
       ].filter(Boolean).join('\n\n');
 
-      const chunks = smartSplitMessage(fallback, { minChunks: 1, maxChunks: 2, addPageHeader: command !== 'quiz' });
+      const showPageHeader = !['quiz', 'roadmap'].includes(command);
+      const chunks = smartSplitMessage(fallback, { minChunks: 1, maxChunks: 2, addPageHeader: showPageHeader });
       await sendChunkedResponse(interaction, chunks);
       logger.warn('Command served with rate-limit fallback', {
         command,
@@ -91,13 +93,16 @@ async function runAICommand({
     throw error;
   }
 
+  aiResponse = formatResponseByCommand(command, aiResponse);
+
   const finalResponse = [prependText, aiResponse, appendText]
     .map((part) => (typeof part === 'string' ? part.trim() : ''))
     .filter(Boolean)
     .join('\n\n');
 
   const minChunks = finalResponse.length > 1700 ? 2 : 1;
-  const chunks = smartSplitMessage(finalResponse, { minChunks, maxChunks: 3, addPageHeader: command !== 'quiz' });
+  const showPageHeader = !['quiz', 'roadmap'].includes(command);
+  const chunks = smartSplitMessage(finalResponse, { minChunks, maxChunks: 3, addPageHeader: showPageHeader });
   await sendChunkedResponse(interaction, chunks);
 
   logger.info('Command completed', {

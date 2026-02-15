@@ -104,6 +104,22 @@ class GeminiService {
   }
 
   buildDetailTemplate(command) {
+    if (command === 'roadmap') {
+      return [
+        'Expected structure:',
+        '1) Title: "## <Goal> Roadmap"',
+        '2) "## Overview" with: duration, weekly time budget, prerequisites, lab setup',
+        '3) Phases as headings: "## Phase N: <Name> (Weeks X-Y)"',
+        '4) Weeks as headings: "### Week N: <Theme>"',
+        '5) For each week include these bullets (flat, no nested lists):',
+        '   - **Learn:** 3-6 short items',
+        '   - **Do:** 2-4 hands-on tasks (lab-safe)',
+        '   - **Deliverable:** 1 tangible outcome (notes, screenshot, mini-report, repo)',
+        '6) "## Tools (Optional)" and "## Practice Platforms" at the end',
+        '7) Use only "-" bullets (no "*" bullets), and keep each bullet on its own line'
+      ].join('\n');
+    }
+
     if (command === 'quiz') {
       return [
         'Expected structure:',
@@ -195,6 +211,17 @@ class GeminiService {
   }
 
   buildCommandRules(command) {
+    if (command === 'roadmap') {
+      return [
+        'Roadmap-specific rules (strict):',
+        '- Use clear headings for phases and weeks.',
+        '- Keep bullets flat (no nested bullet lists).',
+        '- Keep each bullet on its own line (no inline bullets inside paragraphs).',
+        '- Use only "-" for bullets (avoid "*").',
+        '- Keep guidance ethical and lab-only.'
+      ].join('\n');
+    }
+
     if (command === 'quiz') {
       return [
         'Quiz-specific rules (strict):',
@@ -257,6 +284,29 @@ class GeminiService {
         '- Return only the quiz in clean markdown. No extra commentary.',
         '- Keep formatting compact and easy to read in Discord.',
         '- Use blank lines between questions.',
+        '',
+        'Safety requirements:',
+        ...safetyRequirements,
+        '',
+        detailTemplate,
+        commandRules ? '' : null,
+        commandRules || null,
+        '',
+        `Command context: ${commandGuidance}`,
+        `User request: ${userInput || 'No extra context provided.'}`
+      ].filter(Boolean).join('\n');
+    }
+
+    if (command === 'roadmap') {
+      return [
+        'You are CyberAI, a professional cybersecurity mentor for ethical education.',
+        '',
+        'Formatting requirements (strict):',
+        '- Return only the roadmap in clean markdown. No extra commentary.',
+        '- Use headings exactly as requested (Title, Overview, Phase headings, Week headings).',
+        '- Use only "-" bullets.',
+        '- No nested lists. No inline bullets.',
+        '- Keep each bullet on its own line for Discord readability.',
         '',
         'Safety requirements:',
         ...safetyRequirements,
