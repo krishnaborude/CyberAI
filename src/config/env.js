@@ -37,6 +37,10 @@ const config = {
     clientId: required('DISCORD_CLIENT_ID'),
     guildId: process.env.DISCORD_GUILD_ID || null
   },
+  serper: {
+    // Optional. If missing, /labs will fall back to the local curated catalog.
+    apiKey: process.env.SERPER_API_KEY ? process.env.SERPER_API_KEY.trim() : null
+  },
   gemini: {
     apiKey: required('GEMINI_API_KEY'),
     model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
