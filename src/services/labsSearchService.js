@@ -5,6 +5,21 @@ class LabsSearchService {
     this.apiKey = apiKey || null;
     this.logger = logger;
 
+    this.accessHosts = {
+      free: new Set(['portswigger.net', 'owasp.org', 'overthewire.org', 'play.picoctf.org']),
+      paid: new Set(['tryhackme.com', 'www.tryhackme.com', 'academy.hackthebox.com', 'app.hackthebox.com'])
+    };
+
+    this.platformHosts = {
+      tryhackme: new Set(['tryhackme.com', 'www.tryhackme.com']),
+      htb_academy: new Set(['academy.hackthebox.com']),
+      htb_app: new Set(['app.hackthebox.com']),
+      portswigger: new Set(['portswigger.net']),
+      owasp: new Set(['owasp.org']),
+      overthewire: new Set(['overthewire.org']),
+      picoctf: new Set(['play.picoctf.org'])
+    };
+
     // Prefer the platforms you asked for. Keep list tight so returned links are credible.
     this.allowedDomains = new Set([
       'tryhackme.com',
@@ -20,6 +35,34 @@ class LabsSearchService {
 
   hasApiKey() {
     return Boolean(this.apiKey);
+  }
+
+  isAllowedByAccess(raw, access = 'any') {
+    const a = typeof access === 'string' ? access.trim().toLowerCase() : 'any';
+    if (a === 'any') return true;
+
+    try {
+      const host = new URL(raw).hostname.toLowerCase();
+      const set = this.accessHosts[a];
+      if (!set) return true;
+      return set.has(host);
+    } catch {
+      return false;
+    }
+  }
+
+  isAllowedByPlatform(raw, platform = 'any') {
+    const p = typeof platform === 'string' ? platform.trim().toLowerCase() : 'any';
+    if (p === 'any') return true;
+
+    try {
+      const host = new URL(raw).hostname.toLowerCase();
+      const set = this.platformHosts[p];
+      if (!set) return true;
+      return set.has(host);
+    } catch {
+      return false;
+    }
   }
 
   isAllowedUrl(raw) {
@@ -79,7 +122,7 @@ class LabsSearchService {
     }
   }
 
-  async search({ query, limit = 10 } = {}) {
+  async search({ query, limit = 10, access = 'any', platform = 'any' } = {}) {
     if (!this.apiKey) {
       throw new Error('SERPER_API_KEY is not set.');
     }
@@ -118,32 +161,101 @@ class LabsSearchService {
           snippet: typeof item?.snippet === 'string' ? item.snippet.trim() : ''
         }))
         .filter((item) => item.title && item.link)
-        .filter((item) => this.isAllowedUrl(item.link));
+        .filter((item) => this.isAllowedUrl(item.link))
+        .filter((item) => this.isAllowedByAccess(item.link, access))
+        .filter((item) => this.isAllowedByPlatform(item.link, platform));
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  buildQuery(userQuery) {
+  buildQuery(userQuery, { access = 'any', platform = 'any' } = {}) {
     const q = typeof userQuery === 'string' ? userQuery.trim() : '';
-    const platformHint = [
-      'site:tryhackme.com OR site:app.hackthebox.com OR site:academy.hackthebox.com OR site:portswigger.net OR site:owasp.org'
-    ].join(' ');
+    const a = typeof access === 'string' ? access.trim().toLowerCase() : 'any';
+    const p = typeof platform === 'string' ? platform.trim().toLowerCase() : 'any';
+
+    const platformHintByPlatform = p === 'tryhackme'
+      ? 'site:tryhackme.com'
+      : p === 'htb_academy'
+        ? 'site:academy.hackthebox.com'
+        : p === 'htb_app'
+          ? 'site:app.hackthebox.com'
+          : p === 'portswigger'
+            ? 'site:portswigger.net'
+            : p === 'owasp'
+              ? 'site:owasp.org'
+              : p === 'overthewire'
+                ? 'site:overthewire.org'
+                : p === 'picoctf'
+                  ? 'site:play.picoctf.org'
+                  : '';
+
+    const platformHintByAccess = a === 'free'
+      ? 'site:portswigger.net OR site:owasp.org OR site:overthewire.org OR site:play.picoctf.org'
+      : a === 'paid'
+        ? 'site:tryhackme.com OR site:app.hackthebox.com OR site:academy.hackthebox.com'
+        : 'site:tryhackme.com OR site:app.hackthebox.com OR site:academy.hackthebox.com OR site:portswigger.net OR site:owasp.org OR site:overthewire.org OR site:play.picoctf.org';
+
+    const platformHint = platformHintByPlatform || platformHintByAccess;
     return q ? `${q} labs ${platformHint}` : `cybersecurity labs ${platformHint}`;
   }
 
-  buildPlatformQueries(userQuery) {
+  buildPlatformQueries(userQuery, { access = 'any', platform = 'any' } = {}) {
     const q = typeof userQuery === 'string' ? userQuery.trim() : '';
     const base = q || 'cybersecurity';
+    const a = typeof access === 'string' ? access.trim().toLowerCase() : 'any';
+    const p = typeof platform === 'string' ? platform.trim().toLowerCase() : 'any';
+
+    // If a single platform is requested, only query that platform.
+    if (p === 'tryhackme') {
+      return [`${base} room site:tryhackme.com`];
+    }
+    if (p === 'htb_academy') {
+      return [`${base} site:academy.hackthebox.com course OR site:academy.hackthebox.com module`];
+    }
+    if (p === 'htb_app') {
+      return [`${base} site:app.hackthebox.com starting point OR site:app.hackthebox.com machines OR site:app.hackthebox.com challenges`];
+    }
+    if (p === 'portswigger') {
+      return [`${base} lab site:portswigger.net/web-security`];
+    }
+    if (p === 'owasp') {
+      return [`${base} site:owasp.org www-project juice shop OR site:owasp.org www-project webgoat`];
+    }
+    if (p === 'overthewire') {
+      return [`${base} wargames site:overthewire.org/wargames`];
+    }
+    if (p === 'picoctf') {
+      return [`${base} practice site:play.picoctf.org/practice`];
+    }
 
     // Separate queries helps Serper return non-PortSwigger results for topics where
     // PortSwigger dominates (e.g., XSS/SQLi).
+    if (a === 'free') {
+      return [
+        `${base} lab site:portswigger.net/web-security`,
+        `${base} site:owasp.org www-project juice shop OR site:owasp.org www-project webgoat`,
+        `${base} wargames site:overthewire.org/wargames`,
+        `${base} practice site:play.picoctf.org/practice`
+      ];
+    }
+
+    if (a === 'paid') {
+      return [
+        `${base} room site:tryhackme.com`,
+        `${base} site:academy.hackthebox.com course OR site:academy.hackthebox.com module`,
+        `${base} site:app.hackthebox.com starting point OR site:app.hackthebox.com machines OR site:app.hackthebox.com challenges`
+      ];
+    }
+
     return [
       `${base} lab site:portswigger.net/web-security`,
       `${base} room site:tryhackme.com`,
       `${base} site:academy.hackthebox.com course OR site:academy.hackthebox.com module`,
       `${base} site:app.hackthebox.com starting point OR site:app.hackthebox.com machines OR site:app.hackthebox.com challenges`,
-      `${base} site:owasp.org www-project juice shop OR site:owasp.org www-project webgoat`
+      `${base} site:owasp.org www-project juice shop OR site:owasp.org www-project webgoat`,
+      `${base} wargames site:overthewire.org/wargames`,
+      `${base} practice site:play.picoctf.org/practice`
     ];
   }
 

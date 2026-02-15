@@ -10,11 +10,40 @@ module.exports = {
         .setName('query')
         .setDescription('What you want labs for (e.g., XSS, Active Directory, SOC detections, cloud misconfigurations)')
         .setRequired(true)
+    )
+    .addStringOption((option) =>
+      option
+        .setName('access')
+        .setDescription('Filter by access type')
+        .addChoices(
+          { name: 'Any', value: 'any' },
+          { name: 'Free', value: 'free' },
+          { name: 'Paid', value: 'paid' }
+        )
+        .setRequired(false)
+    )
+    .addStringOption((option) =>
+      option
+        .setName('platform')
+        .setDescription('Restrict results to a single platform')
+        .addChoices(
+          { name: 'Any', value: 'any' },
+          { name: 'TryHackMe', value: 'tryhackme' },
+          { name: 'Hack The Box Academy', value: 'htb_academy' },
+          { name: 'Hack The Box (app)', value: 'htb_app' },
+          { name: 'PortSwigger WSA', value: 'portswigger' },
+          { name: 'OWASP', value: 'owasp' },
+          { name: 'OverTheWire', value: 'overthewire' },
+          { name: 'picoCTF', value: 'picoctf' }
+        )
+        .setRequired(false)
     ),
 
   async execute(ctx) {
     const rawQuery = ctx.interaction.options.getString('query', true);
     const query = sanitizeUserInput(rawQuery, { maxChars: 200 });
+    const access = (ctx.interaction.options.getString('access') || 'any').toLowerCase();
+    const platform = (ctx.interaction.options.getString('platform') || 'any').toLowerCase();
 
     const validation = validateUserInput(query, { required: true });
     if (!validation.valid) {
@@ -48,15 +77,63 @@ module.exports = {
       return;
     }
 
+    const platformAccessType = (p) => {
+      // This is a practical classification for filtering. Some platforms may have mixed content,
+      // but we treat these as primarily free or paid for user intent.
+      if (p === 'portswigger' || p === 'owasp' || p === 'overthewire' || p === 'picoctf') return 'free';
+      if (p === 'tryhackme' || p === 'htb_academy' || p === 'htb_app') return 'paid';
+      return 'any';
+    };
+
+    const platformLabel = (p) => {
+      if (p === 'tryhackme') return 'TryHackMe';
+      if (p === 'htb_academy') return 'Hack The Box Academy';
+      if (p === 'htb_app') return 'Hack The Box (app)';
+      if (p === 'portswigger') return 'PortSwigger Web Security Academy';
+      if (p === 'owasp') return 'OWASP';
+      if (p === 'overthewire') return 'OverTheWire';
+      if (p === 'picoctf') return 'picoCTF';
+      return 'Any';
+    };
+
+    if (platform !== 'any') {
+      const implied = platformAccessType(platform);
+      if ((access === 'free' && implied === 'paid') || (access === 'paid' && implied === 'free')) {
+        await ctx.interaction.reply({
+          content: `Filter mismatch: platform "${platformLabel(platform)}" is treated as ${implied.toUpperCase()} access, but you selected access "${access.toUpperCase()}". Change one of the filters and retry.`,
+          ephemeral: true
+        });
+        return;
+      }
+    }
+
     await ctx.interaction.deferReply();
+
+    const normalizeDifficulty = (value) => {
+      const v = typeof value === 'string' ? value.trim().toLowerCase() : '';
+      if (!v) return '';
+      if (v === 'beginner' || v === 'easy' || v === 'apprentice') return 'Beginner';
+      if (v === 'intermediate' || v === 'medium' || v === 'practitioner') return 'Intermediate';
+      if (v === 'advanced' || v === 'hard' || v === 'expert') return 'Advanced';
+      return '';
+    };
+
+    const inferDifficulty = (text) => {
+      const t = typeof text === 'string' ? text.toLowerCase() : '';
+      if (!t) return 'Intermediate';
+      if (/(?:^|[\s/(-])(easy|beginner|apprentice)(?:$|[\s/)-])/i.test(t)) return 'Beginner';
+      if (/(?:^|[\s/(-])(medium|intermediate|practitioner)(?:$|[\s/)-])/i.test(t)) return 'Intermediate';
+      if (/(?:^|[\s/(-])(hard|advanced|expert)(?:$|[\s/)-])/i.test(t)) return 'Advanced';
+      return 'Intermediate';
+    };
 
     // 1) Search via Serper (real pages), 2) Use Gemini to select grounded labs with exact links.
     let labs = null;
     let searchContext = null;
     try {
-      const queries = ctx.services.labsSearch.buildPlatformQueries(query);
+      const queries = ctx.services.labsSearch.buildPlatformQueries(query, { access, platform });
       const settled = await Promise.allSettled(
-        queries.map((q) => ctx.services.labsSearch.search({ query: q, limit: 8 }))
+        queries.map((q) => ctx.services.labsSearch.search({ query: q, limit: 8, access, platform }))
       );
 
       const merged = [];
@@ -99,7 +176,9 @@ module.exports = {
         query,
         searchContext,
         limit: 5,
-        diversity: { maxPerPlatform: 2, minPlatforms: 3 }
+        diversity: { maxPerPlatform: 2, minPlatforms: 3 },
+        access,
+        platform
       });
     } catch (error) {
       ctx.logger.warn('Labs search/Gemini grounding failed', { error: error?.message || String(error) });
@@ -113,13 +192,16 @@ module.exports = {
     };
 
     const lines = [];
-    lines.push(`Recommended labs for: ${query}`);
+    const accessLabel = access === 'free' ? 'Free' : access === 'paid' ? 'Paid' : 'Any';
+    const platLabel = platformLabel(platform);
+    lines.push(`Recommended labs for: ${query} (Access: ${accessLabel}, Platform: ${platLabel})`);
     lines.push('');
 
     if (Array.isArray(labs) && labs.length > 0) {
       labs.forEach((lab, index) => {
         lines.push(`${index + 1}) ${lab.lab_name}`);
         lines.push(`Platform: ${lab.platform}`);
+        lines.push(`Difficulty: ${normalizeDifficulty(lab.difficulty) || inferDifficulty(`${lab.lab_name} ${lab.description} ${lab.platform}`)}`);
         // Wrap links in <> to prevent Discord from generating embeds/previews.
         lines.push(`Link: <${lab.link}>`);
         lines.push(`Description: ${clip(lab.description, 220)}`);
@@ -151,12 +233,14 @@ module.exports = {
       (fallback.length > 0 ? fallback : searchContext.slice(0, 5)).forEach((item, index) => {
         lines.push(`${index + 1}) ${item.title}`);
         if (item.platform_guess) lines.push(`Platform: ${item.platform_guess}`);
+        lines.push(`Difficulty: ${inferDifficulty(`${item.title} ${item.snippet || ''}`)}`);
         lines.push(`Link: <${item.link}>`);
         if (item.snippet) lines.push(`Description: ${clip(item.snippet, 220)}`);
         if (index !== fallback.length - 1) lines.push('');
       });
     } else {
-      lines.push('No lab pages found. Try a more specific query (example: "XSS PortSwigger" or "Active Directory HTB Academy").');
+      lines.push('No lab pages found.');
+      lines.push('Try a more specific query (example: "XSS PortSwigger" or "Active Directory HTB Academy").');
     }
 
     const response = lines.join('\n').trim().slice(0, 1900);
