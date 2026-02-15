@@ -71,7 +71,7 @@ module.exports = {
 
     if (!ctx.services.labsSearch?.hasApiKey?.()) {
       await ctx.interaction.reply({
-        content: 'Live lab search is not configured. Set SERPER_API_KEY in .env and restart the bot.',
+        content: 'Live lab search is not configured. Set SERPER_API_KEY (or SERPER_API_KEY_2) in .env and restart the bot.',
         ephemeral: true
       });
       return;

@@ -39,7 +39,11 @@ const config = {
   },
   serper: {
     // Optional. If missing, /labs will fall back to the local curated catalog.
-    apiKey: process.env.SERPER_API_KEY ? process.env.SERPER_API_KEY.trim() : null
+    apiKeys: [
+      process.env.SERPER_API_KEY ? process.env.SERPER_API_KEY.trim() : null,
+      process.env.SERPER_API_KEY_2 ? process.env.SERPER_API_KEY_2.trim() : null,
+      ...asStringList('SERPER_API_KEYS', [])
+    ].filter(Boolean)
   },
   gemini: {
     apiKey: required('GEMINI_API_KEY'),

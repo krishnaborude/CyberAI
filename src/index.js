@@ -27,7 +27,7 @@ const gemini = new GeminiService({
 client.services = {
   gemini,
   news: new NewsService({ logger, gemini }),
-  labsSearch: new LabsSearchService({ apiKey: config.serper.apiKey, logger })
+  labsSearch: new LabsSearchService({ apiKeys: config.serper.apiKeys, logger })
 };
 client.rateLimiter = new RateLimiter(config.rateLimit);
 
