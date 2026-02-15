@@ -1,8 +1,10 @@
 const { URL } = require('node:url');
 
 class LabsSearchService {
-  constructor({ apiKey, logger }) {
-    this.apiKey = apiKey || null;
+  constructor({ apiKey, apiKeys, logger }) {
+    const keys = Array.isArray(apiKeys) ? apiKeys : [];
+    const legacy = apiKey ? [apiKey] : [];
+    this.apiKeys = [...legacy, ...keys].map((k) => (typeof k === 'string' ? k.trim() : '')).filter(Boolean);
     this.logger = logger;
 
     this.accessHosts = {
@@ -34,7 +36,7 @@ class LabsSearchService {
   }
 
   hasApiKey() {
-    return Boolean(this.apiKey);
+    return this.apiKeys.length > 0;
   }
 
   isAllowedByAccess(raw, access = 'any') {
@@ -123,50 +125,81 @@ class LabsSearchService {
   }
 
   async search({ query, limit = 10, access = 'any', platform = 'any' } = {}) {
-    if (!this.apiKey) {
-      throw new Error('SERPER_API_KEY is not set.');
+    if (this.apiKeys.length === 0) {
+      throw new Error('SERPER_API_KEY (or SERPER_API_KEY_2 / SERPER_API_KEYS) is not set.');
     }
 
     const q = typeof query === 'string' ? query.trim() : '';
     if (!q) return [];
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 9000);
+    const attemptSearch = async (key) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 9000);
 
-    try {
-      const response = await fetch('https://google.serper.dev/search', {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-          'X-API-KEY': this.apiKey,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          q,
-          num: Math.min(Math.max(Number.parseInt(limit, 10) || 10, 5), 20)
-        })
-      });
+      try {
+        const response = await fetch('https://google.serper.dev/search', {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            'X-API-KEY': key,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            q,
+            num: Math.min(Math.max(Number.parseInt(limit, 10) || 10, 5), 20)
+          })
+        });
 
-      if (!response.ok) {
-        throw new Error(`Serper search failed (${response.status})`);
+        if (!response.ok) {
+          const err = new Error(`Serper search failed (${response.status})`);
+          err.status = response.status;
+          throw err;
+        }
+
+        const data = await response.json();
+        const organic = Array.isArray(data?.organic) ? data.organic : [];
+
+        return organic
+          .map((item) => ({
+            title: typeof item?.title === 'string' ? item.title.trim() : '',
+            link: typeof item?.link === 'string' ? item.link.trim() : '',
+            snippet: typeof item?.snippet === 'string' ? item.snippet.trim() : ''
+          }))
+          .filter((item) => item.title && item.link)
+          .filter((item) => this.isAllowedUrl(item.link))
+          .filter((item) => this.isAllowedByAccess(item.link, access))
+          .filter((item) => this.isAllowedByPlatform(item.link, platform));
+      } finally {
+        clearTimeout(timeout);
       }
+    };
 
-      const data = await response.json();
-      const organic = Array.isArray(data?.organic) ? data.organic : [];
+    const isFailoverStatus = (status) => [401, 403, 429, 500, 502, 503, 504].includes(Number(status));
 
-      return organic
-        .map((item) => ({
-          title: typeof item?.title === 'string' ? item.title.trim() : '',
-          link: typeof item?.link === 'string' ? item.link.trim() : '',
-          snippet: typeof item?.snippet === 'string' ? item.snippet.trim() : ''
-        }))
-        .filter((item) => item.title && item.link)
-        .filter((item) => this.isAllowedUrl(item.link))
-        .filter((item) => this.isAllowedByAccess(item.link, access))
-        .filter((item) => this.isAllowedByPlatform(item.link, platform));
-    } finally {
-      clearTimeout(timeout);
+    let lastError = null;
+    for (let i = 0; i < this.apiKeys.length; i += 1) {
+      const key = this.apiKeys[i];
+      try {
+        return await attemptSearch(key);
+      } catch (error) {
+        lastError = error;
+        const status = error?.status;
+        const shouldFailover = status ? isFailoverStatus(status) : true;
+        const canRetry = shouldFailover && i < this.apiKeys.length - 1;
+
+        this.logger?.warn?.('Serper search attempt failed', {
+          attempt: i + 1,
+          totalKeys: this.apiKeys.length,
+          status: typeof status === 'number' ? status : null,
+          error: error?.message || String(error),
+          failover: canRetry
+        });
+
+        if (!canRetry) break;
+      }
     }
+
+    throw lastError || new Error('Serper search failed.');
   }
 
   buildQuery(userQuery, { access = 'any', platform = 'any' } = {}) {
