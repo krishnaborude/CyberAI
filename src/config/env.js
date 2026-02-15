@@ -50,6 +50,9 @@ const config = {
   },
   limits: {
     maxPromptChars: asPositiveInt('MAX_PROMPT_CHARS', 1200)
+  },
+  search: {
+    serperApiKey: process.env.SERPER_API_KEY ? process.env.SERPER_API_KEY.trim() : ''
   }
 };
 

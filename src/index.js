@@ -6,6 +6,8 @@ const RateLimiter = require('./utils/rateLimiter');
 const GeminiService = require('./services/geminiService');
 const NewsService = require('./services/newsService');
 const LabsCatalogService = require('./services/labsCatalogService');
+const SearchService = require('./services/searchService');
+const LabsDiscoveryService = require('./services/labsDiscoveryService');
 const { loadCommands } = require('./handlers/commandHandler');
 const { safeExecute } = require('./handlers/errorHandler');
 
@@ -25,8 +27,15 @@ client.services = {
     logger
   }),
   news: new NewsService({ logger }),
-  labsCatalog: new LabsCatalogService()
+  labsCatalog: new LabsCatalogService(),
+  search: new SearchService({ apiKey: config.search.serperApiKey, logger }),
+  labsDiscovery: null
 };
+
+client.services.labsDiscovery = new LabsDiscoveryService({
+  searchService: client.services.search,
+  logger
+});
 client.rateLimiter = new RateLimiter(config.rateLimit);
 
 client.once(Events.ClientReady, (readyClient) => {

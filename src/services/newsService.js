@@ -265,14 +265,12 @@
     ].join('\n');
 
     const lines = articles.map((article, index) => {
-      const dateText = this.formatDate(article.publishedAt);
-      const summary = this.clip(article.description, 180);
-      const summaryLine = summary ? `\n   - Summary: ${summary}` : '';
+      const description = this.clip(article.description, 220) || 'No description available from the feed.';
 
       return [
         `${index + 1}. **${article.title}**`,
-        `   - Source: ${article.source} | Date: ${dateText}`,
-        `   - Link: <${article.link}>${summaryLine}`
+        `   - Link: <${article.link}>`,
+        `   - Description: ${description}`
       ].join('\n');
     });
 

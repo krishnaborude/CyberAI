@@ -48,7 +48,7 @@ module.exports = {
     const response = ctx.services.news.formatDigest(newsData);
     const chunks = smartSplitMessage(response);
 
-    await sendChunkedResponse(ctx.interaction, chunks);
+    await sendChunkedResponse(ctx.interaction, chunks, { suppressEmbeds: true });
 
     ctx.logger.info('News command completed', {
       userId: ctx.interaction.user.id,
