@@ -425,14 +425,26 @@ class GeminiService {
 
   // Search-grounded lab recommender. Returns an array of lab objects (not a user-facing string),
   // and only allows links that appeared in the search results.
-  async recommendLabsFromSearch({ query, searchContext, limit = 5, diversity = { maxPerPlatform: 2, minPlatforms: 2 } }) {
+  async recommendLabsFromSearch({ query, searchContext, limit = 5, diversity = { maxPerPlatform: 2, minPlatforms: 2 }, access = 'any', platform = 'any' }) {
     const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 5, 3), 5);
     const q = typeof query === 'string' ? query.trim() : '';
     const ctx = Array.isArray(searchContext) ? searchContext : [];
+    const a = typeof access === 'string' ? access.trim().toLowerCase() : 'any';
+    const p = typeof platform === 'string' ? platform.trim().toLowerCase() : 'any';
 
     const allowedLinks = new Set(ctx.map((r) => r.link).filter(Boolean));
     const maxPerPlatform = Math.min(Math.max(Number.parseInt(diversity?.maxPerPlatform, 10) || 2, 1), 5);
     const minPlatforms = Math.min(Math.max(Number.parseInt(diversity?.minPlatforms, 10) || 2, 1), 5);
+
+    const accessRule = a === 'free'
+      ? 'Access filter: FREE only (PortSwigger, OWASP, OverTheWire, picoCTF). Do not choose TryHackMe or Hack The Box links.'
+      : a === 'paid'
+        ? 'Access filter: PAID only (TryHackMe, Hack The Box). Do not choose PortSwigger/OWASP/OverTheWire/picoCTF links.'
+        : 'Access filter: ANY.';
+
+    const platformRule = p === 'any'
+      ? 'Platform filter: ANY.'
+      : `Platform filter: ONLY use "${p}" links from the provided search results.`;
 
     const prompt = [
       'You are a professional cybersecurity training advisor.',
@@ -441,12 +453,17 @@ class GeminiService {
       'You MUST use only the provided search results; do not invent lab names or links.',
       '',
       'Rules:',
+      accessRule,
+      platformRule,
       '- Recommend 3 to 5 labs related to the query.',
-      '- Prefer platforms: Hack The Box, TryHackMe, PortSwigger Web Security Academy, OWASP.',
+      '- Prefer platforms: Hack The Box, TryHackMe, PortSwigger Web Security Academy, OWASP, OverTheWire, picoCTF (subject to access filter).',
       `- Try to include multiple platforms (at least ${minPlatforms} different platforms if possible).`,
       `- Do not pick more than ${maxPerPlatform} labs from the same platform unless the search results do not support diversity.`,
       '- Use realistic labs/rooms/modules/pages from those platforms.',
       '- Descriptions must be short (2-3 lines max).',
+      '- Include "difficulty" for each lab as exactly one of: "Beginner", "Intermediate", "Advanced".',
+      '- If the snippet/title hints: Easy/Apprentice/Beginner => Beginner, Medium/Practitioner/Intermediate => Intermediate, Hard/Expert/Advanced => Advanced.',
+      '- If difficulty is unclear, choose "Intermediate".',
       '',
       'Return only valid JSON matching this schema:',
       '[',
@@ -454,7 +471,8 @@ class GeminiService {
       '    "lab_name": "Lab Name Here",',
       '    "platform": "Platform Name",',
       '    "link": "Must match exactly one of the provided search result links",',
-      '    "description": "Short description here"',
+      '    "description": "Short description here",',
+      '    "difficulty": "Beginner|Intermediate|Advanced"',
       '  }',
       ']',
       '',
@@ -484,15 +502,55 @@ class GeminiService {
       throw new Error('Model did not return a JSON array for lab recommendations.');
     }
 
+    const isAllowedByAccess = (rawLink) => {
+      if (a === 'any') return true;
+      try {
+        const host = new URL(rawLink).hostname.toLowerCase();
+        if (a === 'free') {
+          return ['portswigger.net', 'owasp.org', 'overthewire.org', 'play.picoctf.org'].includes(host);
+        }
+        if (a === 'paid') {
+          return ['tryhackme.com', 'www.tryhackme.com', 'academy.hackthebox.com', 'app.hackthebox.com'].includes(host);
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const isAllowedByPlatform = (rawLink) => {
+      if (p === 'any') return true;
+      try {
+        const host = new URL(rawLink).hostname.toLowerCase();
+        const map = {
+          tryhackme: ['tryhackme.com', 'www.tryhackme.com'],
+          htb_academy: ['academy.hackthebox.com'],
+          htb_app: ['app.hackthebox.com'],
+          portswigger: ['portswigger.net'],
+          owasp: ['owasp.org'],
+          overthewire: ['overthewire.org'],
+          picoctf: ['play.picoctf.org']
+        };
+        const allowed = map[p];
+        if (!allowed) return true;
+        return allowed.includes(host);
+      } catch {
+        return false;
+      }
+    };
+
     const cleaned = parsed
       .map((item) => ({
         lab_name: typeof item?.lab_name === 'string' ? item.lab_name.trim() : '',
         platform: typeof item?.platform === 'string' ? item.platform.trim() : '',
         link: typeof item?.link === 'string' ? item.link.trim() : '',
-        description: typeof item?.description === 'string' ? item.description.trim() : ''
+        description: typeof item?.description === 'string' ? item.description.trim() : '',
+        difficulty: typeof item?.difficulty === 'string' ? item.difficulty.trim() : ''
       }))
       .filter((item) => item.lab_name && item.platform && item.link && item.description)
       .filter((item) => allowedLinks.has(item.link))
+      .filter((item) => isAllowedByAccess(item.link))
+      .filter((item) => isAllowedByPlatform(item.link))
       .slice(0, safeLimit);
 
     const platformCounts = new Map();
