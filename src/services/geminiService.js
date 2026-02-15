@@ -16,7 +16,8 @@ const QUALITY_REQUIREMENTS = {
   tools: { minChars: 1300, minHeadings: 5, minBullets: 10 },
   labs: { minChars: 1300, minHeadings: 5, minBullets: 10 },
   redteam: { minChars: 1400, minHeadings: 6, minBullets: 12 },
-  quiz: { minChars: 1000, minHeadings: 2, minBullets: 10 },
+  // Quizzes are mostly line-based (Q/A/B/C/D), so bullet/heading heuristics should not force padding.
+  quiz: { minChars: 450, minHeadings: 2, minBullets: 0 },
   news: { minChars: 900, minHeadings: 3, minBullets: 6 },
   default: { minChars: 1200, minHeadings: 4, minBullets: 8 }
 };
@@ -106,15 +107,16 @@ class GeminiService {
     if (command === 'quiz') {
       return [
         'Expected structure:',
-        '1) Quiz title',
-        '2) Questions list where each item includes:',
-        '   - Question text',
-        '   - A) option',
-        '   - B) option',
-        '   - C) option',
-        '   - D) option',
-        '3) Final section: "## Answer Key"',
-        '4) Answer key format: "Q1: B" only (no explanations)'
+        '1) A short quiz title as a markdown heading (e.g., "## SQL Injection Quiz")',
+        '2) A "### Questions" section with questions formatted like:',
+        '   Q1. <question>',
+        '   A) <option>',
+        '   B) <option>',
+        '   C) <option>',
+        '   D) <option>',
+        '   (blank line between questions)',
+        '3) Final section exactly titled: "## Answer Key"',
+        '4) Answer key lines formatted exactly like: "Q1: B" (no explanations)'
       ].join('\n');
     }
 
@@ -247,6 +249,27 @@ class GeminiService {
     const commandRules = this.buildCommandRules(command);
     const safetyRequirements = this.buildSafetyRequirements(command);
 
+    if (command === 'quiz') {
+      return [
+        'You are CyberAI, a professional cybersecurity mentor for ethical education.',
+        '',
+        'Output format requirements (strict):',
+        '- Return only the quiz in clean markdown. No extra commentary.',
+        '- Keep formatting compact and easy to read in Discord.',
+        '- Use blank lines between questions.',
+        '',
+        'Safety requirements:',
+        ...safetyRequirements,
+        '',
+        detailTemplate,
+        commandRules ? '' : null,
+        commandRules || null,
+        '',
+        `Command context: ${commandGuidance}`,
+        `User request: ${userInput || 'No extra context provided.'}`
+      ].filter(Boolean).join('\n');
+    }
+
     return [
       'You are CyberAI, a professional cybersecurity mentor for ethical education.',
       'Teaching style requirements:',
@@ -287,11 +310,12 @@ class GeminiService {
     const questionCount = this.countMatches(text, /(?:^|\n)(?:[-*]\s+)?Q\d+[:).]/gmi)
       || this.countMatches(text, /(?:^|\n)(?:\d+\.|Question\s+\d+)/gmi);
 
-    const aCount = this.countMatches(text, /(?:^|\n)\s*A\)\s+/gmi);
-    const bCount = this.countMatches(text, /(?:^|\n)\s*B\)\s+/gmi);
-    const cCount = this.countMatches(text, /(?:^|\n)\s*C\)\s+/gmi);
-    const dCount = this.countMatches(text, /(?:^|\n)\s*D\)\s+/gmi);
+    const aCount = this.countMatches(text, /(?:^|\n)\s*(?:[-*]\s+)?A\)\s+/gmi);
+    const bCount = this.countMatches(text, /(?:^|\n)\s*(?:[-*]\s+)?B\)\s+/gmi);
+    const cCount = this.countMatches(text, /(?:^|\n)\s*(?:[-*]\s+)?C\)\s+/gmi);
+    const dCount = this.countMatches(text, /(?:^|\n)\s*(?:[-*]\s+)?D\)\s+/gmi);
     const hasAnswerKey = /(?:^|\n)##\s*Answer\s*Key/mi.test(text);
+    const keyCount = this.countMatches(text, /(?:^|\n)\s*Q\d+\s*:\s*[ABCD]\s*$/gmi);
 
     const optionSetCount = Math.min(aCount, bCount, cCount, dCount);
 
@@ -299,6 +323,9 @@ class GeminiService {
     if (optionSetCount < 3) return { valid: false, reason: 'Missing required MCQ options A/B/C/D.' };
     if (questionCount > 0 && optionSetCount < questionCount) {
       return { valid: false, reason: 'Not all questions include A/B/C/D options.' };
+    }
+    if (questionCount > 0 && keyCount > 0 && keyCount < questionCount) {
+      return { valid: false, reason: 'Answer key appears incomplete (missing some Q#: <letter> lines).' };
     }
 
     return { valid: true, reason: '' };

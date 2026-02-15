@@ -31,7 +31,7 @@ module.exports = {
       logger: ctx.logger,
       config: ctx.config,
       command: 'quiz',
-      input: `Topic: ${topic}; Questions: ${questions}; Format: MCQ only with A) B) C) D) options and answer key without explanations.`
+      input: `Topic: ${topic}; Questions: ${questions}; Format: MCQ only with A) B) C) D) options, blank line between questions, and an answer key without explanations. Keep it compact for Discord.`
     });
   }
 };

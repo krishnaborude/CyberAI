@@ -80,7 +80,7 @@ async function runAICommand({
         appendText
       ].filter(Boolean).join('\n\n');
 
-      const chunks = smartSplitMessage(fallback, { minChunks: 1, maxChunks: 2 });
+      const chunks = smartSplitMessage(fallback, { minChunks: 1, maxChunks: 2, addPageHeader: command !== 'quiz' });
       await sendChunkedResponse(interaction, chunks);
       logger.warn('Command served with rate-limit fallback', {
         command,
@@ -97,7 +97,7 @@ async function runAICommand({
     .join('\n\n');
 
   const minChunks = finalResponse.length > 1700 ? 2 : 1;
-  const chunks = smartSplitMessage(finalResponse, { minChunks, maxChunks: 3 });
+  const chunks = smartSplitMessage(finalResponse, { minChunks, maxChunks: 3, addPageHeader: command !== 'quiz' });
   await sendChunkedResponse(interaction, chunks);
 
   logger.info('Command completed', {
