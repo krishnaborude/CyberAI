@@ -653,6 +653,118 @@ class GeminiService {
     return finalList.slice(0, safeLimit);
   }
 
+  // Search-grounded resource curator for /resource command.
+  // It only allows links that already came from search results.
+  async curateResourcesFromSearch({ query, type = 'all', resources, limit = 5 } = {}) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 5, 3), 8);
+    const q = typeof query === 'string' ? query.trim() : '';
+    const requestedType = typeof type === 'string' ? type.trim().toLowerCase() : 'all';
+    const list = Array.isArray(resources) ? resources : [];
+
+    const ctx = list.slice(0, 28).map((item) => ({
+      name: typeof item?.name === 'string' ? item.name.trim() : '',
+      summary: typeof item?.summary === 'string' ? item.summary.trim() : '',
+      platform: typeof item?.platform === 'string' ? item.platform.trim() : '',
+      type: typeof item?.type === 'string' ? item.type.trim().toLowerCase() : '',
+      link: typeof item?.link === 'string' ? item.link.trim() : ''
+    })).filter((item) => item.name && item.link);
+
+    if (ctx.length === 0) return [];
+
+    const allowedLinks = new Set(ctx.map((item) => item.link));
+    const itemByLink = new Map(ctx.map((item) => [item.link, item]));
+
+    const typeInstruction = requestedType === 'all'
+      ? 'Type filter: any relevant cybersecurity type is allowed.'
+      : `Type filter: ONLY "${requestedType}" resources are allowed.`;
+    const diversityInstruction = requestedType === 'all'
+      ? '- Prefer diversity: include one each of article, blog, book, GitHub repo, and walkthrough when available in candidates.'
+      : '- Keep all selected items in the requested type only.';
+
+    const prompt = [
+      'You are CyberAI, a cybersecurity learning curator.',
+      '',
+      'Task: select the best cybersecurity resources from provided search results.',
+      'You MUST only use the provided links and must not invent names, links, or platforms.',
+      '',
+      'Selection rules:',
+      typeInstruction,
+      diversityInstruction,
+      '- Prefer practical, trusted, and beginner-friendly learning resources when possible.',
+      '- Prioritize official docs/platforms and high-signal writeups over generic SEO pages.',
+      '- For books, avoid piracy mirrors and suspicious download sites.',
+      '- Keep summaries factual, concise, and based only on provided item text.',
+      '',
+      'Output rules:',
+      '- Return ONLY valid JSON array.',
+      `- Return up to ${safeLimit} items.`,
+      '- Every item must include fields exactly:',
+      '  - "name"',
+      '  - "summary"',
+      '  - "platform"',
+      '  - "type" (one of: "articles", "blogs", "github", "books", "walkthrough")',
+      '  - "link" (must exactly match one provided link)',
+      '',
+      `User query: ${q || 'cybersecurity learning resources'}`,
+      '',
+      'Candidate resources (JSON):',
+      JSON.stringify(ctx)
+    ].join('\n');
+
+    const raw = await this.callModel(prompt, { maxOutputTokens: 900 });
+
+    let parsed = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      const start = raw.indexOf('[');
+      const end = raw.lastIndexOf(']');
+      if (start >= 0 && end > start) {
+        parsed = JSON.parse(raw.slice(start, end + 1));
+      }
+    }
+
+    if (!Array.isArray(parsed)) {
+      throw new Error('Model did not return a JSON array for resource curation.');
+    }
+
+    const normalizeType = (value) => {
+      const v = typeof value === 'string' ? value.trim().toLowerCase() : '';
+      if (v === 'articles') return 'articles';
+      if (v === 'blogs') return 'blogs';
+      if (v === 'github') return 'github';
+      if (v === 'books') return 'books';
+      if (v === 'walkthrough') return 'walkthrough';
+      return 'articles';
+    };
+
+    const seen = new Set();
+    const cleaned = [];
+    for (const item of parsed) {
+      const link = typeof item?.link === 'string' ? item.link.trim() : '';
+      if (!link || !allowedLinks.has(link) || seen.has(link)) continue;
+      seen.add(link);
+
+      const fallback = itemByLink.get(link) || {};
+      const normalizedType = normalizeType(item?.type || fallback.type);
+      if (requestedType !== 'all' && normalizedType !== requestedType) continue;
+
+      cleaned.push({
+        name: typeof item?.name === 'string' && item.name.trim() ? item.name.trim() : fallback.name,
+        summary: typeof item?.summary === 'string' && item.summary.trim()
+          ? item.summary.trim().slice(0, 260)
+          : (fallback.summary || 'No short summary available for this resource.'),
+        platform: typeof item?.platform === 'string' && item.platform.trim() ? item.platform.trim() : (fallback.platform || 'Unknown'),
+        type: normalizedType,
+        link
+      });
+
+      if (cleaned.length >= safeLimit) break;
+    }
+
+    return cleaned.slice(0, safeLimit);
+  }
+
   // Feed-grounded news selector. Returns a small JSON payload describing chosen links and tiers.
   // It MUST not invent links: caller validates returned links against the provided list.
   async rankNewsFromFeed({ focus, articles, limit = 7, tier = 'all' } = {}) {
