@@ -6,6 +6,7 @@ const RateLimiter = require('./utils/rateLimiter');
 const GeminiService = require('./services/geminiService');
 const NewsService = require('./services/newsService');
 const LabsSearchService = require('./services/labsSearchService');
+const ResourceSearchService = require('./services/resourceSearchService');
 const { loadCommands } = require('./handlers/commandHandler');
 const { safeExecute } = require('./handlers/errorHandler');
 
@@ -27,7 +28,8 @@ const gemini = new GeminiService({
 client.services = {
   gemini,
   news: new NewsService({ logger, gemini }),
-  labsSearch: new LabsSearchService({ apiKeys: config.serper.apiKeys, logger })
+  labsSearch: new LabsSearchService({ apiKeys: config.serper.apiKeys, logger }),
+  resourceSearch: new ResourceSearchService({ apiKeys: config.serper.apiKeys, logger })
 };
 client.rateLimiter = new RateLimiter(config.rateLimit);
 
