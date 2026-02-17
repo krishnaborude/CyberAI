@@ -39,15 +39,73 @@ class LabsSearchService {
     return this.apiKeys.length > 0;
   }
 
+  isLikelyPaidLabUrl(raw) {
+    try {
+      const url = new URL(raw);
+      const host = url.hostname.toLowerCase();
+      const path = url.pathname || '/';
+
+      // These platforms have mixed free/paid content.
+      // Use conservative URL heuristics so "paid" mode does not leak obvious free tracks.
+      if (host === 'tryhackme.com' || host === 'www.tryhackme.com') {
+        return path.startsWith('/path/') || path.startsWith('/r/path/');
+      }
+
+      if (host === 'app.hackthebox.com') {
+        return path === '/tracks'
+          || path.startsWith('/tracks/')
+          || path === '/challenges'
+          || path.startsWith('/challenges/');
+      }
+
+      // HTB Academy content is typically subscription-gated.
+      if (host === 'academy.hackthebox.com') {
+        return path.startsWith('/course/') || path.startsWith('/module/');
+      }
+
+      return this.accessHosts.paid.has(host);
+    } catch {
+      return false;
+    }
+  }
+
+  isLikelyFreeLabUrl(raw) {
+    try {
+      const url = new URL(raw);
+      const host = url.hostname.toLowerCase();
+      const path = url.pathname || '/';
+
+      if (this.accessHosts.free.has(host)) return true;
+
+      if (host === 'tryhackme.com' || host === 'www.tryhackme.com') {
+        return path.startsWith('/room/') || path.startsWith('/module/');
+      }
+
+      if (host === 'app.hackthebox.com') {
+        return path.startsWith('/starting-point');
+      }
+
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
   isAllowedByAccess(raw, access = 'any') {
     const a = typeof access === 'string' ? access.trim().toLowerCase() : 'any';
     if (a === 'any') return true;
 
     try {
       const host = new URL(raw).hostname.toLowerCase();
-      const set = this.accessHosts[a];
-      if (!set) return true;
-      return set.has(host);
+      if (a === 'paid') {
+        const paidHosts = this.accessHosts.paid;
+        if (!paidHosts.has(host)) return false;
+        return this.isLikelyPaidLabUrl(raw);
+      }
+      if (a === 'free') {
+        return this.isLikelyFreeLabUrl(raw);
+      }
+      return true;
     } catch {
       return false;
     }
@@ -97,7 +155,9 @@ class LabsSearchService {
         return (
           path.startsWith('/starting-point')
           || path.startsWith('/machines/')
+          || path === '/tracks'
           || path.startsWith('/tracks/')
+          || path === '/challenges'
           || path.startsWith('/challenges/')
         );
       }
@@ -224,7 +284,7 @@ class LabsSearchService {
                   : '';
 
     const platformHintByAccess = a === 'free'
-      ? 'site:portswigger.net OR site:owasp.org OR site:overthewire.org OR site:play.picoctf.org'
+      ? 'site:portswigger.net OR site:owasp.org OR site:overthewire.org OR site:play.picoctf.org OR site:tryhackme.com OR site:app.hackthebox.com'
       : a === 'paid'
         ? 'site:tryhackme.com OR site:app.hackthebox.com OR site:academy.hackthebox.com'
         : 'site:tryhackme.com OR site:app.hackthebox.com OR site:academy.hackthebox.com OR site:portswigger.net OR site:owasp.org OR site:overthewire.org OR site:play.picoctf.org';
@@ -241,12 +301,20 @@ class LabsSearchService {
 
     // If a single platform is requested, only query that platform.
     if (p === 'tryhackme') {
-      return [`${base} room site:tryhackme.com`];
+      if (a === 'free') return [`${base} room OR module site:tryhackme.com`];
+      if (a === 'paid') return [`${base} path site:tryhackme.com`];
+      return [`${base} room OR module OR path site:tryhackme.com`];
     }
     if (p === 'htb_academy') {
       return [`${base} site:academy.hackthebox.com course OR site:academy.hackthebox.com module`];
     }
     if (p === 'htb_app') {
+      if (a === 'free') {
+        return [`${base} site:app.hackthebox.com starting point`];
+      }
+      if (a === 'paid') {
+        return [`${base} site:app.hackthebox.com tracks OR site:app.hackthebox.com challenges`];
+      }
       return [`${base} site:app.hackthebox.com starting point OR site:app.hackthebox.com machines OR site:app.hackthebox.com challenges`];
     }
     if (p === 'portswigger') {
@@ -267,6 +335,8 @@ class LabsSearchService {
     if (a === 'free') {
       return [
         `${base} lab site:portswigger.net/web-security`,
+        `${base} room OR module site:tryhackme.com`,
+        `${base} site:app.hackthebox.com starting point`,
         `${base} site:owasp.org www-project juice shop OR site:owasp.org www-project webgoat`,
         `${base} wargames site:overthewire.org/wargames`,
         `${base} practice site:play.picoctf.org/practice`
@@ -275,9 +345,9 @@ class LabsSearchService {
 
     if (a === 'paid') {
       return [
-        `${base} room site:tryhackme.com`,
+        `${base} path site:tryhackme.com`,
         `${base} site:academy.hackthebox.com course OR site:academy.hackthebox.com module`,
-        `${base} site:app.hackthebox.com starting point OR site:app.hackthebox.com machines OR site:app.hackthebox.com challenges`
+        `${base} site:app.hackthebox.com tracks OR site:app.hackthebox.com challenges`
       ];
     }
 
