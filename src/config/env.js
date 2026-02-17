@@ -46,7 +46,11 @@ const config = {
     ].filter(Boolean)
   },
   gemini: {
-    apiKey: required('GEMINI_API_KEY'),
+    apiKeys: [
+      required('GEMINI_API_KEY'),
+      process.env.GEMINI_API_KEY_2 ? process.env.GEMINI_API_KEY_2.trim() : null,
+      ...asStringList('GEMINI_API_KEYS', [])
+    ].filter(Boolean),
     model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
     fallbackModels: asStringList('GEMINI_FALLBACK_MODELS', []),
     maxRetries: asPositiveInt('GEMINI_MAX_RETRIES', 3),

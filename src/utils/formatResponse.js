@@ -21,12 +21,179 @@ function protectCodeBlocks(text) {
   return { protectedText, placeholders };
 }
 
+function parseMarkdownTableRow(line) {
+  if (typeof line !== 'string' || !line.includes('|')) return null;
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+
+  const hasOuterPipes = trimmed.startsWith('|') || trimmed.endsWith('|');
+  let cells = trimmed.split('|').map((part) => part.trim());
+
+  if (hasOuterPipes && cells[0] === '') cells = cells.slice(1);
+  if (hasOuterPipes && cells[cells.length - 1] === '') cells = cells.slice(0, -1);
+  if (cells.length < 2) return null;
+
+  return cells;
+}
+
+function isMarkdownTableSeparator(line) {
+  const cells = parseMarkdownTableRow(line);
+  if (!cells) return false;
+  return cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function formatTableAsDiscordList(headers, rows) {
+  const cleanedHeaders = headers.map((header, index) => header || `Column ${index + 1}`);
+  const primaryHeader = cleanedHeaders[0] || 'Item';
+
+  return rows.map((row, rowIndex) => {
+    const primaryValue = row[0] || `Row ${rowIndex + 1}`;
+    const lines = [`- **${primaryHeader}:** ${primaryValue}`];
+
+    for (let i = 1; i < cleanedHeaders.length; i += 1) {
+      const value = row[i];
+      if (!value) continue;
+      lines.push(`  **${cleanedHeaders[i]}:** ${value}`);
+    }
+
+    return lines.join('\n');
+  }).join('\n\n');
+}
+
+function convertMarkdownTablesToDiscordLists(input) {
+  if (typeof input !== 'string' || !input.includes('|')) return input;
+
+  const lines = input.split('\n');
+  const output = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const headerCells = parseMarkdownTableRow(lines[i]);
+    const separatorLine = lines[i + 1];
+
+    if (!headerCells || !isMarkdownTableSeparator(separatorLine)) {
+      output.push(lines[i]);
+      continue;
+    }
+
+    const rows = [];
+    let cursor = i + 2;
+    while (cursor < lines.length) {
+      const rowCells = parseMarkdownTableRow(lines[cursor]);
+      if (!rowCells) break;
+      rows.push(rowCells);
+      cursor += 1;
+    }
+
+    if (rows.length === 0) {
+      output.push(lines[i]);
+      output.push(lines[i + 1]);
+      i += 1;
+      continue;
+    }
+
+    output.push(formatTableAsDiscordList(headerCells, rows));
+    i = cursor - 1;
+  }
+
+  return output.join('\n');
+}
+
+function extractCopyableSnippet(line) {
+  if (typeof line !== 'string') return '';
+  if (/__CODE_BLOCK_\d+__/.test(line)) return '';
+
+  const inlineCode = line.match(/`([^`\n]+)`/);
+  if (inlineCode && inlineCode[1]) {
+    return inlineCode[1].trim();
+  }
+
+  const trimmed = line.trim();
+  if (!trimmed) return '';
+
+  if (/^(SELECT|INSERT|UPDATE|DELETE|WITH|ALTER|CREATE|DROP)\b/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Common short payload patterns often shown inline in educational examples.
+  if (/['"`]\s*(?:or|and)\s+['"`0-9a-z_]/i.test(trimmed) && /=/.test(trimmed)) {
+    return trimmed;
+  }
+
+  return '';
+}
+
+function injectCopyableCodeBlocks(input) {
+  if (typeof input !== 'string' || !input.trim()) return input;
+
+  const labelRegex = /^\s*(?:#{1,6}\s*)?(?:[-*]\s+)?\*{0,2}(Vulnerable Code Example(?:\s*\(Conceptual\))?|Attack Payload|Resulting Executable Query|Executable Query|Payload|Query)\*{0,2}\s*:\s*$/i;
+  const lines = input.split('\n');
+  const output = [];
+  let awaitingSnippet = false;
+  let inspectedNonEmpty = 0;
+  const maxNonEmptyLookahead = 4;
+
+  for (const line of lines) {
+    output.push(line);
+
+    if (labelRegex.test(line)) {
+      awaitingSnippet = true;
+      inspectedNonEmpty = 0;
+      continue;
+    }
+
+    if (!awaitingSnippet) continue;
+
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (/^#{1,6}\s+/.test(trimmed)) {
+      awaitingSnippet = false;
+      continue;
+    }
+
+    inspectedNonEmpty += 1;
+    const snippet = extractCopyableSnippet(line);
+    if (snippet) {
+      const isWholeLineSnippet = snippet === trimmed;
+      if (isWholeLineSnippet) {
+        output.pop();
+      }
+      output.push('', '```text', snippet, '```');
+      awaitingSnippet = false;
+      continue;
+    }
+
+    if (inspectedNonEmpty >= maxNonEmptyLookahead) {
+      awaitingSnippet = false;
+    }
+  }
+
+  return output.join('\n');
+}
+
+function trimVerboseRefusalPreface(text) {
+  const raw = typeof text === 'string' ? text.trim() : '';
+  if (!raw) return raw;
+
+  const prefacePattern = /^(?:I\s+(?:cannot|can't)\s+provide[^.]*\.\s*)+(?:My\s+purpose\s+is[^.]*\.\s*)?/i;
+  if (!prefacePattern.test(raw)) return raw;
+
+  const trimmed = raw.replace(prefacePattern, '').trim();
+  if (!trimmed) return raw;
+
+  // Only keep the trim when useful topic content remains.
+  if (!/(overview|defensive|detection|prevention|mitigation|safe|lab|practice|how it works|what it is)/i.test(trimmed)) {
+    return raw;
+  }
+
+  return trimmed.replace(/^I\s+can,\s+however,\s*/i, '').trim();
+}
+
 function formatGenericMarkdown(input) {
   const raw = typeof input === 'string' ? input : '';
   if (!raw.trim()) return raw;
 
   const { protectedText, placeholders } = protectCodeBlocks(raw.replace(/\r\n/g, '\n'));
-  let text = protectedText.trim();
+  let text = trimVerboseRefusalPreface(protectedText.trim());
 
   // Drop leading "Disclaimer:" blocks (they're repetitive in Discord). Keep safety by other means.
   // Handles:
@@ -65,6 +232,12 @@ function formatGenericMarkdown(input) {
     removeDisclaimerBlockStartingAt(nonEmptyIdx[1]);
     text = lines.join('\n').trim();
   }
+
+  // Discord does not render markdown pipe tables well; convert them to readable list blocks.
+  text = convertMarkdownTablesToDiscordLists(text);
+
+  // Make payload/query snippets copyable by adding fenced code blocks after labeled lines.
+  text = injectCopyableCodeBlocks(text);
 
   // Convert "inline bullets" like "... safe. *   Item: ..." into real list lines.
   text = text.replace(/([^\n])\s*\*\s{2,}(?=[A-Z0-9])/g, '$1\n- ');

@@ -17,7 +17,7 @@ const client = new Client({
 const commandsDir = path.join(__dirname, 'commands');
 client.commands = loadCommands(commandsDir);
 const gemini = new GeminiService({
-  apiKey: config.gemini.apiKey,
+  apiKeys: config.gemini.apiKeys,
   model: config.gemini.model,
   fallbackModels: config.gemini.fallbackModels,
   maxRetries: config.gemini.maxRetries,

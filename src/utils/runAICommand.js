@@ -94,7 +94,9 @@ async function runAICommand({
 
   aiResponse = formatResponseByCommand(command, aiResponse);
 
-  const finalResponse = [prependText, aiResponse, appendText]
+  const userInputLine = sanitizedInput ? `**User Input:** ${sanitizedInput}` : '';
+
+  const finalResponse = [prependText, userInputLine, aiResponse, appendText]
     .map((part) => (typeof part === 'string' ? part.trim() : ''))
     .filter(Boolean)
     .join('\n\n');

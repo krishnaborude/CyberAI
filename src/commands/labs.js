@@ -14,7 +14,7 @@ module.exports = {
     .addStringOption((option) =>
       option
         .setName('access')
-        .setDescription('Filter by access type')
+        .setDescription('Filter labs by access type')
         .addChoices(
           { name: 'Any', value: 'any' },
           { name: 'Free', value: 'free' },
@@ -44,6 +44,7 @@ module.exports = {
     const query = sanitizeUserInput(rawQuery, { maxChars: 200 });
     const access = (ctx.interaction.options.getString('access') || 'any').toLowerCase();
     const platform = (ctx.interaction.options.getString('platform') || 'any').toLowerCase();
+    const requestedLimit = 5;
 
     const validation = validateUserInput(query, { required: true });
     if (!validation.valid) {
@@ -77,14 +78,6 @@ module.exports = {
       return;
     }
 
-    const platformAccessType = (p) => {
-      // This is a practical classification for filtering. Some platforms may have mixed content,
-      // but we treat these as primarily free or paid for user intent.
-      if (p === 'portswigger' || p === 'owasp' || p === 'overthewire' || p === 'picoctf') return 'free';
-      if (p === 'tryhackme' || p === 'htb_academy' || p === 'htb_app') return 'paid';
-      return 'any';
-    };
-
     const platformLabel = (p) => {
       if (p === 'tryhackme') return 'TryHackMe';
       if (p === 'htb_academy') return 'Hack The Box Academy';
@@ -95,17 +88,6 @@ module.exports = {
       if (p === 'picoctf') return 'picoCTF';
       return 'Any';
     };
-
-    if (platform !== 'any') {
-      const implied = platformAccessType(platform);
-      if ((access === 'free' && implied === 'paid') || (access === 'paid' && implied === 'free')) {
-        await ctx.interaction.reply({
-          content: `Filter mismatch: platform "${platformLabel(platform)}" is treated as ${implied.toUpperCase()} access, but you selected access "${access.toUpperCase()}". Change one of the filters and retry.`,
-          ephemeral: true
-        });
-        return;
-      }
-    }
 
     await ctx.interaction.deferReply();
 
@@ -127,13 +109,46 @@ module.exports = {
       return 'Intermediate';
     };
 
+    const detectAccessFromLink = (rawLink) => {
+      if (!rawLink || typeof rawLink !== 'string') return 'Unknown';
+      try {
+        const url = new URL(rawLink);
+        const host = url.hostname.toLowerCase();
+        const path = url.pathname || '/';
+
+        if (['portswigger.net', 'owasp.org', 'overthewire.org', 'play.picoctf.org'].includes(host)) return 'Free';
+
+        if (host === 'tryhackme.com' || host === 'www.tryhackme.com') {
+          if (path.startsWith('/path/') || path.startsWith('/r/path/')) return 'Paid';
+          if (path.startsWith('/room/') || path.startsWith('/module/')) return 'Free';
+          return 'Unknown';
+        }
+
+        if (host === 'academy.hackthebox.com') {
+          if (path.startsWith('/course/') || path.startsWith('/module/')) return 'Paid';
+          return 'Unknown';
+        }
+
+        if (host === 'app.hackthebox.com') {
+          if (path.startsWith('/starting-point')) return 'Free';
+          if (path === '/tracks' || path.startsWith('/tracks/') || path === '/challenges' || path.startsWith('/challenges/')) return 'Paid';
+          return 'Unknown';
+        }
+      } catch {
+        return 'Unknown';
+      }
+      return 'Unknown';
+    };
+
     // 1) Search via Serper (real pages), 2) Use Gemini to select grounded labs with exact links.
     let labs = null;
     let searchContext = null;
+    let suggestionLabs = null;
     try {
       const queries = ctx.services.labsSearch.buildPlatformQueries(query, { access, platform });
+      const perQueryLimit = Math.min(Math.max(requestedLimit * 3, 8), 20);
       const settled = await Promise.allSettled(
-        queries.map((q) => ctx.services.labsSearch.search({ query: q, limit: 8, access, platform }))
+        queries.map((q) => ctx.services.labsSearch.search({ query: q, limit: perQueryLimit, access, platform }))
       );
 
       const merged = [];
@@ -175,13 +190,58 @@ module.exports = {
       labs = await ctx.services.gemini.recommendLabsFromSearch({
         query,
         searchContext,
-        limit: 5,
-        diversity: { maxPerPlatform: 2, minPlatforms: 3 },
+        limit: requestedLimit,
+        diversity: {
+          maxPerPlatform: platform === 'any' ? Math.max(2, Math.ceil(requestedLimit / 2)) : requestedLimit,
+          minPlatforms: platform === 'any' ? Math.min(2, requestedLimit) : 1
+        },
         access,
         platform
       });
     } catch (error) {
       ctx.logger.warn('Labs search/Gemini grounding failed', { error: error?.message || String(error) });
+    }
+
+    // If strict platform + access returns nothing, fetch broader suggestions
+    // so users still get actionable labs for the same topic/access.
+    if (
+      platform !== 'any'
+      && (!Array.isArray(labs) || labs.length === 0)
+      && (!Array.isArray(searchContext) || searchContext.length === 0)
+    ) {
+      try {
+        const broaderQueries = ctx.services.labsSearch.buildPlatformQueries(query, { access, platform: 'any' });
+        const broaderSettled = await Promise.allSettled(
+          broaderQueries.map((q) => ctx.services.labsSearch.search({ query: q, limit: 12, access, platform: 'any' }))
+        );
+
+        const broaderMerged = [];
+        for (const entry of broaderSettled) {
+          if (entry.status === 'fulfilled') broaderMerged.push(...entry.value);
+        }
+
+        const broaderUnique = [];
+        const broaderSeen = new Set();
+        for (const item of broaderMerged) {
+          if (!item?.link || broaderSeen.has(item.link)) continue;
+          broaderSeen.add(item.link);
+          broaderUnique.push(item);
+        }
+
+        const broaderContext = ctx.services.labsSearch.toSearchContext(broaderUnique, 24);
+        if (broaderContext.length > 0) {
+          suggestionLabs = await ctx.services.gemini.recommendLabsFromSearch({
+            query,
+            searchContext: broaderContext,
+            limit: 3,
+            diversity: { maxPerPlatform: 2, minPlatforms: 1 },
+            access,
+            platform: 'any'
+          });
+        }
+      } catch (error) {
+        ctx.logger.warn('Labs broad suggestion fallback failed', { error: error?.message || String(error) });
+      }
     }
 
     const clip = (text, maxLen) => {
@@ -192,8 +252,8 @@ module.exports = {
     };
 
     const lines = [];
-    const accessLabel = access === 'free' ? 'Free' : access === 'paid' ? 'Paid' : 'Any';
     const platLabel = platformLabel(platform);
+    const accessLabel = access === 'free' ? 'Free' : access === 'paid' ? 'Paid' : 'Any';
     lines.push(`Recommended labs for: ${query} (Access: ${accessLabel}, Platform: ${platLabel})`);
     lines.push('');
 
@@ -201,6 +261,7 @@ module.exports = {
       labs.forEach((lab, index) => {
         lines.push(`${index + 1}) ${lab.lab_name}`);
         lines.push(`Platform: ${lab.platform}`);
+        lines.push(`Access: ${detectAccessFromLink(lab.link)}`);
         lines.push(`Difficulty: ${normalizeDifficulty(lab.difficulty) || inferDifficulty(`${lab.lab_name} ${lab.description} ${lab.platform}`)}`);
         // Wrap links in <> to prevent Discord from generating embeds/previews.
         lines.push(`Link: <${lab.link}>`);
@@ -219,28 +280,47 @@ module.exports = {
       const platformOrder = ['tryhackme', 'hack the box', 'portswigger web security academy', 'owasp', 'overthewire', 'picoctf', 'other'];
       const fallback = [];
       let idx = 0;
-      while (fallback.length < 5 && idx < 10) {
+      while (fallback.length < requestedLimit && idx < 10) {
         for (const platformKey of platformOrder) {
           const list = buckets.get(platformKey) || [];
           if (list.length === 0) continue;
           const candidate = list.shift();
           if (candidate) fallback.push(candidate);
-          if (fallback.length >= 5) break;
+          if (fallback.length >= requestedLimit) break;
         }
         idx += 1;
       }
 
-      (fallback.length > 0 ? fallback : searchContext.slice(0, 5)).forEach((item, index) => {
+      const fallbackList = fallback.length > 0 ? fallback : searchContext.slice(0, requestedLimit);
+      fallbackList.forEach((item, index) => {
         lines.push(`${index + 1}) ${item.title}`);
         if (item.platform_guess) lines.push(`Platform: ${item.platform_guess}`);
+        lines.push(`Access: ${detectAccessFromLink(item.link)}`);
         lines.push(`Difficulty: ${inferDifficulty(`${item.title} ${item.snippet || ''}`)}`);
         lines.push(`Link: <${item.link}>`);
         if (item.snippet) lines.push(`Description: ${clip(item.snippet, 220)}`);
-        if (index !== fallback.length - 1) lines.push('');
+        if (index !== fallbackList.length - 1) lines.push('');
       });
+    } else if (Array.isArray(suggestionLabs) && suggestionLabs.length > 0) {
+      lines.push(`No exact lab match found for Access: ${accessLabel} + Platform: ${platLabel}.`);
+      lines.push('Here are related suggestions with the same access filter:');
+      lines.push('');
+
+      suggestionLabs.forEach((lab, index) => {
+        lines.push(`${index + 1}) ${lab.lab_name}`);
+        lines.push(`Platform: ${lab.platform}`);
+        lines.push(`Access: ${detectAccessFromLink(lab.link)}`);
+        lines.push(`Difficulty: ${normalizeDifficulty(lab.difficulty) || inferDifficulty(`${lab.lab_name} ${lab.description} ${lab.platform}`)}`);
+        lines.push(`Link: <${lab.link}>`);
+        lines.push(`Description: ${clip(lab.description, 220)}`);
+        if (index !== suggestionLabs.length - 1) lines.push('');
+      });
+
+      lines.push('');
+      lines.push('Tip: use `Platform: Any` to get more results for this topic.');
     } else {
-      lines.push('No lab pages found.');
-      lines.push('Try a more specific query (example: "XSS PortSwigger" or "Active Directory HTB Academy").');
+      lines.push(`No lab pages found for Access: ${accessLabel} + Platform: ${platLabel}.`);
+      lines.push('Try `Platform: Any` or a nearby topic (example: "web recon", "OSINT", or "search operators").');
     }
 
     const response = lines.join('\n').trim().slice(0, 1900);
