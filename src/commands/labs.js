@@ -13,17 +13,6 @@ module.exports = {
     )
     .addStringOption((option) =>
       option
-        .setName('access')
-        .setDescription('Filter labs by access type')
-        .addChoices(
-          { name: 'Any', value: 'any' },
-          { name: 'Free', value: 'free' },
-          { name: 'Paid', value: 'paid' }
-        )
-        .setRequired(false)
-    )
-    .addStringOption((option) =>
-      option
         .setName('platform')
         .setDescription('Restrict results to a single platform')
         .addChoices(
@@ -42,7 +31,6 @@ module.exports = {
   async execute(ctx) {
     const rawQuery = ctx.interaction.options.getString('query', true);
     const query = sanitizeUserInput(rawQuery, { maxChars: 200 });
-    const access = (ctx.interaction.options.getString('access') || 'any').toLowerCase();
     const platform = (ctx.interaction.options.getString('platform') || 'any').toLowerCase();
     const requestedLimit = 5;
 
@@ -109,46 +97,15 @@ module.exports = {
       return 'Intermediate';
     };
 
-    const detectAccessFromLink = (rawLink) => {
-      if (!rawLink || typeof rawLink !== 'string') return 'Unknown';
-      try {
-        const url = new URL(rawLink);
-        const host = url.hostname.toLowerCase();
-        const path = url.pathname || '/';
-
-        if (['portswigger.net', 'owasp.org', 'overthewire.org', 'play.picoctf.org'].includes(host)) return 'Free';
-
-        if (host === 'tryhackme.com' || host === 'www.tryhackme.com') {
-          if (path.startsWith('/path/') || path.startsWith('/r/path/')) return 'Paid';
-          if (path.startsWith('/room/') || path.startsWith('/module/')) return 'Free';
-          return 'Unknown';
-        }
-
-        if (host === 'academy.hackthebox.com') {
-          if (path.startsWith('/course/') || path.startsWith('/module/')) return 'Paid';
-          return 'Unknown';
-        }
-
-        if (host === 'app.hackthebox.com') {
-          if (path.startsWith('/starting-point')) return 'Free';
-          if (path === '/tracks' || path.startsWith('/tracks/') || path === '/challenges' || path.startsWith('/challenges/')) return 'Paid';
-          return 'Unknown';
-        }
-      } catch {
-        return 'Unknown';
-      }
-      return 'Unknown';
-    };
-
     // 1) Search via Serper (real pages), 2) Use Gemini to select grounded labs with exact links.
     let labs = null;
     let searchContext = null;
     let suggestionLabs = null;
     try {
-      const queries = ctx.services.labsSearch.buildPlatformQueries(query, { access, platform });
+      const queries = ctx.services.labsSearch.buildPlatformQueries(query, { platform });
       const perQueryLimit = Math.min(Math.max(requestedLimit * 3, 8), 20);
       const settled = await Promise.allSettled(
-        queries.map((q) => ctx.services.labsSearch.search({ query: q, limit: perQueryLimit, access, platform }))
+        queries.map((q) => ctx.services.labsSearch.search({ query: q, limit: perQueryLimit, platform }))
       );
 
       const merged = [];
@@ -195,24 +152,22 @@ module.exports = {
           maxPerPlatform: platform === 'any' ? Math.max(2, Math.ceil(requestedLimit / 2)) : requestedLimit,
           minPlatforms: platform === 'any' ? Math.min(2, requestedLimit) : 1
         },
-        access,
         platform
       });
     } catch (error) {
       ctx.logger.warn('Labs search/Gemini grounding failed', { error: error?.message || String(error) });
     }
 
-    // If strict platform + access returns nothing, fetch broader suggestions
-    // so users still get actionable labs for the same topic/access.
+    // If strict platform returns nothing, fetch broader suggestions.
     if (
       platform !== 'any'
       && (!Array.isArray(labs) || labs.length === 0)
       && (!Array.isArray(searchContext) || searchContext.length === 0)
     ) {
       try {
-        const broaderQueries = ctx.services.labsSearch.buildPlatformQueries(query, { access, platform: 'any' });
+        const broaderQueries = ctx.services.labsSearch.buildPlatformQueries(query, { platform: 'any' });
         const broaderSettled = await Promise.allSettled(
-          broaderQueries.map((q) => ctx.services.labsSearch.search({ query: q, limit: 12, access, platform: 'any' }))
+          broaderQueries.map((q) => ctx.services.labsSearch.search({ query: q, limit: 12, platform: 'any' }))
         );
 
         const broaderMerged = [];
@@ -235,7 +190,6 @@ module.exports = {
             searchContext: broaderContext,
             limit: 3,
             diversity: { maxPerPlatform: 2, minPlatforms: 1 },
-            access,
             platform: 'any'
           });
         }
@@ -253,15 +207,13 @@ module.exports = {
 
     const lines = [];
     const platLabel = platformLabel(platform);
-    const accessLabel = access === 'free' ? 'Free' : access === 'paid' ? 'Paid' : 'Any';
-    lines.push(`Recommended labs for: ${query} (Access: ${accessLabel}, Platform: ${platLabel})`);
+    lines.push(`Recommended labs for: ${query} (Platform: ${platLabel})`);
     lines.push('');
 
     if (Array.isArray(labs) && labs.length > 0) {
       labs.forEach((lab, index) => {
         lines.push(`${index + 1}) ${lab.lab_name}`);
         lines.push(`Platform: ${lab.platform}`);
-        lines.push(`Access: ${detectAccessFromLink(lab.link)}`);
         lines.push(`Difficulty: ${normalizeDifficulty(lab.difficulty) || inferDifficulty(`${lab.lab_name} ${lab.description} ${lab.platform}`)}`);
         // Wrap links in <> to prevent Discord from generating embeds/previews.
         lines.push(`Link: <${lab.link}>`);
@@ -295,21 +247,19 @@ module.exports = {
       fallbackList.forEach((item, index) => {
         lines.push(`${index + 1}) ${item.title}`);
         if (item.platform_guess) lines.push(`Platform: ${item.platform_guess}`);
-        lines.push(`Access: ${detectAccessFromLink(item.link)}`);
         lines.push(`Difficulty: ${inferDifficulty(`${item.title} ${item.snippet || ''}`)}`);
         lines.push(`Link: <${item.link}>`);
         if (item.snippet) lines.push(`Description: ${clip(item.snippet, 220)}`);
         if (index !== fallbackList.length - 1) lines.push('');
       });
     } else if (Array.isArray(suggestionLabs) && suggestionLabs.length > 0) {
-      lines.push(`No exact lab match found for Access: ${accessLabel} + Platform: ${platLabel}.`);
-      lines.push('Here are related suggestions with the same access filter:');
+      lines.push(`No exact lab match found for Platform: ${platLabel}.`);
+      lines.push('Here are related suggestions:');
       lines.push('');
 
       suggestionLabs.forEach((lab, index) => {
         lines.push(`${index + 1}) ${lab.lab_name}`);
         lines.push(`Platform: ${lab.platform}`);
-        lines.push(`Access: ${detectAccessFromLink(lab.link)}`);
         lines.push(`Difficulty: ${normalizeDifficulty(lab.difficulty) || inferDifficulty(`${lab.lab_name} ${lab.description} ${lab.platform}`)}`);
         lines.push(`Link: <${lab.link}>`);
         lines.push(`Description: ${clip(lab.description, 220)}`);
@@ -319,7 +269,7 @@ module.exports = {
       lines.push('');
       lines.push('Tip: use `Platform: Any` to get more results for this topic.');
     } else {
-      lines.push(`No lab pages found for Access: ${accessLabel} + Platform: ${platLabel}.`);
+      lines.push(`No lab pages found for Platform: ${platLabel}.`);
       lines.push('Try `Platform: Any` or a nearby topic (example: "web recon", "OSINT", or "search operators").');
     }
 
