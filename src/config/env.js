@@ -51,7 +51,7 @@ const config = {
       process.env.GEMINI_API_KEY_2 ? process.env.GEMINI_API_KEY_2.trim() : null,
       ...asStringList('GEMINI_API_KEYS', [])
     ].filter(Boolean),
-    model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     fallbackModels: asStringList('GEMINI_FALLBACK_MODELS', []),
     maxRetries: asPositiveInt('GEMINI_MAX_RETRIES', 3),
     retryBaseMs: asPositiveInt('GEMINI_RETRY_BASE_MS', 1500)

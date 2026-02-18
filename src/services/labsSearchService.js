@@ -39,16 +39,68 @@ class LabsSearchService {
     return this.apiKeys.length > 0;
   }
 
-  isLikelyPaidLabUrl(raw) {
+  parseLabInput(input) {
+    if (typeof input === 'string') {
+      return { link: input, title: '', snippet: '' };
+    }
+    if (input && typeof input === 'object') {
+      return {
+        link: typeof input.link === 'string' ? input.link : '',
+        title: typeof input.title === 'string' ? input.title : '',
+        snippet: typeof input.snippet === 'string' ? input.snippet : ''
+      };
+    }
+    return { link: '', title: '', snippet: '' };
+  }
+
+  hasPremiumSignal(input) {
+    const { link, title, snippet } = this.parseLabInput(input);
+    const text = `${title} ${snippet} ${link}`.toLowerCase();
+    return /premium|subscribe|subscription|required plan|paid plan|upgrade|members only|pro only|unlocked with/i.test(text)
+      || /why-subscribe|roomcode=|modulecode=/.test(text);
+  }
+
+  isLikelyTryHackMeFree(input) {
+    const { link } = this.parseLabInput(input);
     try {
-      const url = new URL(raw);
+      const url = new URL(link);
+      const host = url.hostname.toLowerCase();
+      const path = url.pathname || '/';
+      if (host !== 'tryhackme.com' && host !== 'www.tryhackme.com') return false;
+      if (path.startsWith('/why-subscribe')) return false;
+      if (!(path.startsWith('/room/') || path.startsWith('/module/'))) return false;
+      if (this.hasPremiumSignal(input)) return false;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  isLikelyTryHackMePaid(input) {
+    const { link } = this.parseLabInput(input);
+    try {
+      const url = new URL(link);
+      const host = url.hostname.toLowerCase();
+      const path = url.pathname || '/';
+      if (host !== 'tryhackme.com' && host !== 'www.tryhackme.com') return false;
+      if (path.startsWith('/path/') || path.startsWith('/r/path/') || path.startsWith('/why-subscribe')) return true;
+      return this.hasPremiumSignal(input);
+    } catch {
+      return false;
+    }
+  }
+
+  isLikelyPaidLabUrl(input) {
+    const { link } = this.parseLabInput(input);
+    try {
+      const url = new URL(link);
       const host = url.hostname.toLowerCase();
       const path = url.pathname || '/';
 
       // These platforms have mixed free/paid content.
       // Use conservative URL heuristics so "paid" mode does not leak obvious free tracks.
       if (host === 'tryhackme.com' || host === 'www.tryhackme.com') {
-        return path.startsWith('/path/') || path.startsWith('/r/path/');
+        return this.isLikelyTryHackMePaid(input);
       }
 
       if (host === 'app.hackthebox.com') {
@@ -69,16 +121,17 @@ class LabsSearchService {
     }
   }
 
-  isLikelyFreeLabUrl(raw) {
+  isLikelyFreeLabUrl(input) {
+    const { link } = this.parseLabInput(input);
     try {
-      const url = new URL(raw);
+      const url = new URL(link);
       const host = url.hostname.toLowerCase();
       const path = url.pathname || '/';
 
       if (this.accessHosts.free.has(host)) return true;
 
       if (host === 'tryhackme.com' || host === 'www.tryhackme.com') {
-        return path.startsWith('/room/') || path.startsWith('/module/');
+        return this.isLikelyTryHackMeFree(input);
       }
 
       if (host === 'app.hackthebox.com') {
@@ -91,19 +144,20 @@ class LabsSearchService {
     }
   }
 
-  isAllowedByAccess(raw, access = 'any') {
+  isAllowedByAccess(input, access = 'any') {
     const a = typeof access === 'string' ? access.trim().toLowerCase() : 'any';
     if (a === 'any') return true;
+    const { link } = this.parseLabInput(input);
 
     try {
-      const host = new URL(raw).hostname.toLowerCase();
+      const host = new URL(link).hostname.toLowerCase();
       if (a === 'paid') {
         const paidHosts = this.accessHosts.paid;
         if (!paidHosts.has(host)) return false;
-        return this.isLikelyPaidLabUrl(raw);
+        return this.isLikelyPaidLabUrl(input);
       }
       if (a === 'free') {
-        return this.isLikelyFreeLabUrl(raw);
+        return this.isLikelyFreeLabUrl(input);
       }
       return true;
     } catch {
@@ -227,7 +281,7 @@ class LabsSearchService {
           }))
           .filter((item) => item.title && item.link)
           .filter((item) => this.isAllowedUrl(item.link))
-          .filter((item) => this.isAllowedByAccess(item.link, access))
+          .filter((item) => this.isAllowedByAccess(item, access))
           .filter((item) => this.isAllowedByPlatform(item.link, platform));
       } finally {
         clearTimeout(timeout);

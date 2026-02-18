@@ -77,7 +77,7 @@ async function runAICommand({
         '## AI Busy Right Now',
         '- The AI provider hit a temporary rate limit (429 Resource Exhausted).',
         '- Please retry in 30-60 seconds.',
-        '- Tip: use a lighter model (for example `gemini-1.5-flash`) or lower request volume.',
+        '- Tip: use a lighter model (for example `gemini-2.5-flash`) or lower request volume.',
         appendText
       ].filter(Boolean).join('\n\n');
 

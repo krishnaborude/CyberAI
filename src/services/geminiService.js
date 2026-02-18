@@ -1,4 +1,11 @@
-﻿const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { buildRoadmapPrompt } = require('./prompts/roadmapPrompt');
+const { buildExplainPrompt } = require('./prompts/explainPrompt');
+const { buildLabsPrompt } = require('./prompts/labsPrompt');
+const { buildNewsPrompt } = require('./prompts/newsPrompt');
+const { buildLabsRecommendationPrompt } = require('./prompts/labsRecommendationPrompt');
+const { buildResourceCurationPrompt } = require('./prompts/resourceCurationPrompt');
+const { buildNewsRankingPrompt } = require('./prompts/newsRankingPrompt');
 
 const COMMAND_GUIDANCE = {
   roadmap: 'Create a progressive cybersecurity learning roadmap with phases, skills, and weekly milestones.',
@@ -88,7 +95,7 @@ const CYBERAI_SYSTEM_PROMPT = [
 
 const QUALITY_REQUIREMENTS = {
   explain: { minChars: 420, maxChars: 2600, minHeadings: 3, minBullets: 4 },
-  roadmap: { minChars: 700, maxChars: 3000, minHeadings: 4, minBullets: 8 },
+  roadmap: { minChars: 750, maxChars: 6200, minHeadings: 6, minBullets: 10 },
   tools: { minChars: 420, maxChars: 2400, minHeadings: 3, minBullets: 4 },
   labs: { minChars: 420, maxChars: 2400, minHeadings: 3, minBullets: 4 },
   redteam: { minChars: 520, maxChars: 2800, minHeadings: 4, minBullets: 6 },
@@ -110,13 +117,22 @@ class GeminiService {
       throw new Error('At least one Gemini API key is required.');
     }
 
+    const mergedModels = [model, ...(Array.isArray(fallbackModels) ? fallbackModels : [])]
+      .map((m) => (typeof m === 'string' ? m.trim() : ''))
+      .filter(Boolean);
+
+    if (mergedModels.length === 0) {
+      throw new Error('At least one Gemini model name is required.');
+    }
+
     this.logger = logger;
     this.modelName = model;
     this.maxRetries = maxRetries;
     this.retryBaseMs = retryBaseMs;
     this.apiKeys = Array.from(new Set(mergedKeys));
     this.clients = this.apiKeys.map((key) => new GoogleGenerativeAI(key));
-    this.modelNames = [model, ...fallbackModels].filter(Boolean);
+    this.modelNames = Array.from(new Set(mergedModels));
+    this.unavailableModels = new Set();
     this.models = new Map();
   }
 
@@ -132,12 +148,22 @@ class GeminiService {
 
   isRateLimitError(error) {
     const message = this.getErrorMessage(error);
-    return /429|resource exhausted|too many requests|rate limit/i.test(message);
+    return /429|resource exhausted|too many requests|rate limit/i.test(message) || this.isServiceBusyError(error);
   }
 
   isRetriableError(error) {
     const message = this.getErrorMessage(error);
     return /429|resource exhausted|too many requests|rate limit|503|unavailable|timeout|deadline/i.test(message);
+  }
+
+  isServiceBusyError(error) {
+    const message = this.getErrorMessage(error);
+    return /503|service unavailable|high demand|overloaded/i.test(message);
+  }
+
+  isModelUnavailableError(error) {
+    const message = this.getErrorMessage(error);
+    return /404|no longer available|model .* not found|not supported for generatecontent|unknown model/i.test(message);
   }
 
   isEmptyResponseError(error) {
@@ -171,7 +197,7 @@ class GeminiService {
     const model = this.getModel(clientIndex, modelName);
     let lastError = null;
     let tokenBudget = Math.max(200, Number.parseInt(maxOutputTokens, 10) || 1100);
-    const maxTokenBudget = Math.max(tokenBudget, 2400);
+    const maxTokenBudget = Math.min(3400, Math.max(2200, Math.floor(tokenBudget * 1.45)));
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
       try {
@@ -191,8 +217,8 @@ class GeminiService {
 
         const finishReason = this.getFinishReason(result);
         if (this.isMaxTokensFinishReason(finishReason) && tokenBudget < maxTokenBudget && attempt < this.maxRetries) {
-          const nextBudget = Math.min(maxTokenBudget, Math.floor(tokenBudget * 1.4));
-          this.logger.warn('Gemini response hit token limit, retrying with higher output budget', {
+          const nextBudget = Math.min(maxTokenBudget, Math.max(tokenBudget + 120, Math.floor(tokenBudget * 1.35)));
+          this.logger.info('Gemini response hit token limit, retrying with higher output budget', {
             keyIndex: clientIndex + 1,
             keyTotal: this.clients.length,
             model: modelName,
@@ -239,10 +265,10 @@ class GeminiService {
         '3) Phases as headings: "## Phase N: <Name> (Weeks X-Y)"',
         '4) Weeks as headings: "### Week N: <Theme>"',
         '5) For each week include these bullets (flat, no nested lists):',
-        '   - **Learn:** 3-6 short items',
-        '   - **Do:** 2-4 hands-on tasks (lab-safe)',
+        '   - **Learn:** 2-4 short items',
+        '   - **Do:** 1-2 hands-on tasks (lab-safe)',
         '   - **Deliverable:** 1 tangible outcome (notes, screenshot, mini-report, repo)',
-        '6) "## Tools (Optional)" and "## Practice Platforms" at the end',
+        '6) Keep total roadmap concise and avoid long paragraphs',
         '7) Use only "-" bullets (no "*" bullets), and keep each bullet on its own line'
       ].join('\n');
     }
@@ -404,6 +430,44 @@ class GeminiService {
     ];
   }
 
+  inferRoadmapWeeks(userInput) {
+    const input = typeof userInput === 'string' ? userInput.trim().toLowerCase() : '';
+    if (!input) return null;
+
+    const clampWeeks = (weeks) => {
+      if (!Number.isFinite(weeks)) return null;
+      return Math.min(12, Math.max(4, Math.floor(weeks)));
+    };
+
+    const weekMatch = input.match(/(\d{1,2})\s*weeks?/i);
+    if (weekMatch) {
+      return clampWeeks(Number.parseInt(weekMatch[1], 10));
+    }
+
+    const monthMatch = input.match(/(\d{1,2})\s*months?/i);
+    if (monthMatch) {
+      const months = Number.parseInt(monthMatch[1], 10);
+      return clampWeeks(months * 4);
+    }
+
+    const wordToNumber = {
+      one: 1,
+      two: 2,
+      three: 3,
+      four: 4,
+      five: 5,
+      six: 6
+    };
+    for (const [word, value] of Object.entries(wordToNumber)) {
+      const re = new RegExp(`\\b${word}\\s+months?\\b`, 'i');
+      if (re.test(input)) {
+        return clampWeeks(value * 4);
+      }
+    }
+
+    return null;
+  }
+
   buildPrompt({ command, userInput }) {
     const commandGuidance = COMMAND_GUIDANCE[command] || 'Provide a helpful cybersecurity learning response.';
     const detailTemplate = this.buildDetailTemplate(command);
@@ -433,27 +497,48 @@ class GeminiService {
     }
 
     if (command === 'roadmap') {
-      return [
-        CYBERAI_SYSTEM_PROMPT,
-        '',
-        'Formatting requirements (strict):',
-        '- Return only the roadmap in clean markdown. No extra commentary.',
-        '- Use headings exactly as requested (Title, Overview, Phase headings, Week headings).',
-        '- Use only "-" bullets.',
-        '- Do not use markdown tables; Discord does not render them reliably.',
-        '- No nested lists. No inline bullets.',
-        '- Keep each bullet on its own line for Discord readability.',
-        '',
-        'Safety requirements:',
-        ...safetyRequirements,
-        '',
+      return buildRoadmapPrompt({
+        systemPrompt: CYBERAI_SYSTEM_PROMPT,
+        commandGuidance,
+        safetyRequirements,
         detailTemplate,
-        commandRules ? '' : null,
-        commandRules || null,
-        '',
-        `Command context: ${commandGuidance}`,
-        `User request: ${userInput || 'No extra context provided.'}`
-      ].filter(Boolean).join('\n');
+        commandRules,
+        userInput,
+        targetWeeks: this.inferRoadmapWeeks(userInput) || 8
+      });
+    }
+
+    if (command === 'explain') {
+      return buildExplainPrompt({
+        systemPrompt: CYBERAI_SYSTEM_PROMPT,
+        commandGuidance,
+        safetyRequirements,
+        detailTemplate,
+        commandRules,
+        userInput
+      });
+    }
+
+    if (command === 'labs') {
+      return buildLabsPrompt({
+        systemPrompt: CYBERAI_SYSTEM_PROMPT,
+        commandGuidance,
+        safetyRequirements,
+        detailTemplate,
+        commandRules,
+        userInput
+      });
+    }
+
+    if (command === 'news') {
+      return buildNewsPrompt({
+        systemPrompt: CYBERAI_SYSTEM_PROMPT,
+        commandGuidance,
+        safetyRequirements,
+        detailTemplate,
+        commandRules,
+        userInput
+      });
     }
 
     return [
@@ -524,7 +609,53 @@ class GeminiService {
     return { valid: true, reason: '' };
   }
 
-  evaluateQuality(command, text) {
+  validateRoadmapCompleteness(text, { expectedWeeks = null } = {}) {
+    const issues = [];
+    const durationMatch = text.match(/(?:^|\n)\s*(?:[-*]\s+)?(?:\*\*)?Duration(?:\*\*)?\s*:\s*(\d{1,2})\s*Weeks?/i);
+    const durationWeeks = durationMatch ? Number.parseInt(durationMatch[1], 10) : null;
+
+    const weekNumbers = [];
+    const weekRegex = /(?:^|\n)\s*(?:#{2,6}\s+)?(?:[-*]\s+)?Week\s+(\d{1,2})\s*:/gim;
+    let match = weekRegex.exec(text);
+    while (match) {
+      const value = Number.parseInt(match[1], 10);
+      if (Number.isFinite(value)) weekNumbers.push(value);
+      match = weekRegex.exec(text);
+    }
+
+    const uniqueWeeks = new Set(weekNumbers);
+    const maxWeek = weekNumbers.length > 0 ? Math.max(...weekNumbers) : 0;
+    const hasAnyWeek = uniqueWeeks.size > 0;
+    const targetWeeks = Number.isFinite(expectedWeeks) ? expectedWeeks : durationWeeks;
+
+    if (Number.isFinite(expectedWeeks) && durationWeeks && durationWeeks !== expectedWeeks) {
+      issues.push(`Roadmap duration mismatch: expected ${expectedWeeks} weeks but found ${durationWeeks} weeks.`);
+    }
+
+    if (targetWeeks && targetWeeks >= 4 && targetWeeks <= 20) {
+      if (uniqueWeeks.size < targetWeeks || maxWeek < targetWeeks) {
+        if (!hasAnyWeek) {
+          issues.push(`Roadmap is incomplete: duration says ${targetWeeks} weeks but no explicit week sections were found.`);
+        } else {
+          issues.push(`Roadmap is incomplete: duration says ${targetWeeks} weeks but week coverage only reaches Week ${maxWeek}.`);
+        }
+      }
+    } else if (uniqueWeeks.size < 4) {
+      issues.push('Roadmap is incomplete: include at least 4 explicit week sections.');
+    }
+
+    const endsWithBareWeekHeading = /(?:^|\n)\s*(?:#{2,6}\s+)?Week\s+\d+\s*:[^\n]*\s*$/i.test(text.trim());
+    if (endsWithBareWeekHeading) {
+      issues.push('Roadmap appears truncated at a week heading; complete that week with Learn/Do/Deliverable bullets.');
+    }
+
+    return {
+      valid: issues.length === 0,
+      issues
+    };
+  }
+
+  evaluateQuality(command, text, context = {}) {
     const requirement = this.getRequirement(command);
     const headingCount = this.countMatches(text, /(?:^|\n)#{2,6}\s+/g);
     const bulletCount = this.countMatches(text, /(?:^|\n)\s*(?:[-*]|\d+\.)\s+/g);
@@ -550,18 +681,58 @@ class GeminiService {
       }
     }
 
+    if (command === 'roadmap') {
+      const roadmapValidation = this.validateRoadmapCompleteness(text, {
+        expectedWeeks: context.roadmapWeeks || null
+      });
+      if (!roadmapValidation.valid) {
+        issues.push(...roadmapValidation.issues);
+      }
+    }
+
     return {
       pass: issues.length === 0,
       issues
     };
   }
 
-  buildRefinementPrompt({ command, userInput, draft, issues }) {
+  shouldAcceptWithoutRefinement(command, text, quality) {
+    if (quality?.pass) return true;
+    if (command !== 'roadmap') return false;
+
+    const issues = Array.isArray(quality?.issues) ? quality.issues : [];
+    const nonLengthIssues = issues.filter((issue) => !/^Response is too long/i.test(issue));
+    if (nonLengthIssues.length > 0) return false;
+
+    const maxChars = this.getRequirement(command)?.maxChars;
+    if (!Number.isFinite(maxChars) || maxChars <= 0) return false;
+    return text.length <= Math.floor(maxChars * 1.12);
+  }
+
+  buildRefinementPrompt({ command, userInput, draft, issues, roadmapWeeks = null }) {
+    const roadmapRefinementRules = command === 'roadmap'
+      ? [
+        '',
+        'Roadmap refinement requirements (strict):',
+        '- Keep the same roadmap topic from the draft/user request.',
+        Number.isFinite(roadmapWeeks)
+          ? `- Use exactly this duration: ${roadmapWeeks} weeks.`
+          : '- If duration is present (e.g., "Duration: N Weeks"), include all weeks from Week 1 through Week N.',
+        '- For every week heading include exactly these bullets:',
+        '  - **Learn:**',
+        '  - **Do:**',
+        '  - **Deliverable:**',
+        '- Do not stop at an unfinished week heading.',
+        '- Keep the output markdown-only and Discord-friendly.'
+      ]
+      : [];
+
     return [
       'Improve the following draft response.',
       'Keep all safety and ethical constraints.',
       'Fix these quality issues:',
       ...issues.map((issue) => `- ${issue}`),
+      ...roadmapRefinementRules,
       '',
       'Condense aggressively when the draft is too long or repetitive.',
       'Stay strictly on-topic and remove generic policy filler.',
@@ -580,6 +751,11 @@ class GeminiService {
     let lastError = null;
 
     for (const modelName of this.modelNames) {
+      if (this.unavailableModels.has(modelName)) {
+        this.logger.info('Skipping model previously marked unavailable', { model: modelName });
+        continue;
+      }
+
       for (let clientIndex = 0; clientIndex < this.clients.length; clientIndex += 1) {
         try {
           return await this.generateWithRetry(clientIndex, modelName, prompt, { maxOutputTokens });
@@ -591,6 +767,25 @@ class GeminiService {
             keyTotal: this.clients.length,
             error: this.getErrorMessage(error)
           });
+
+          // 404/retired models will never work on other keys. Mark once and skip immediately.
+          if (this.isModelUnavailableError(error)) {
+            this.unavailableModels.add(modelName);
+            this.logger.warn('Skipping remaining keys for unavailable Gemini model', {
+              model: modelName,
+              failedAtKeyIndex: clientIndex + 1
+            });
+            break;
+          }
+
+          // 503/high-demand conditions are often model-level, so try the next fallback model quickly.
+          if (this.isServiceBusyError(error)) {
+            this.logger.warn('Skipping remaining keys for busy Gemini model', {
+              model: modelName,
+              failedAtKeyIndex: clientIndex + 1
+            });
+            break;
+          }
 
           // Empty response on a model is usually model-level incompatibility for this text flow.
           // Move to next model immediately instead of trying all remaining keys on the same model.
@@ -610,16 +805,28 @@ class GeminiService {
 
   async generateCyberResponse({ command, userInput }) {
     const prompt = this.buildPrompt({ command, userInput });
+    const targetRoadmapWeeks = command === 'roadmap' ? (this.inferRoadmapWeeks(userInput) || 8) : null;
+    const firstPassTokens = command === 'roadmap' ? 1650 : 1100;
+    const refinePassTokens = command === 'roadmap' ? 2100 : 1300;
 
     try {
-      const firstDraft = await this.callModel(prompt);
-      const firstQuality = this.evaluateQuality(command, firstDraft);
+      const firstDraft = await this.callModel(prompt, { maxOutputTokens: firstPassTokens });
+      const firstQuality = this.evaluateQuality(command, firstDraft, {
+        roadmapWeeks: targetRoadmapWeeks
+      });
 
-      if (firstQuality.pass) {
+      if (this.shouldAcceptWithoutRefinement(command, firstDraft, firstQuality)) {
+        if (!firstQuality.pass) {
+          this.logger.info('Accepting slightly long roadmap draft to reduce latency', {
+            command,
+            length: firstDraft.length,
+            issues: firstQuality.issues
+          });
+        }
         return firstDraft;
       }
 
-      this.logger.warn('Low quality first draft, attempting refinement', {
+      this.logger.info('Low quality first draft, attempting refinement', {
         command,
         issues: firstQuality.issues
       });
@@ -628,11 +835,14 @@ class GeminiService {
         command,
         userInput,
         draft: firstDraft,
-        issues: firstQuality.issues
+        issues: firstQuality.issues,
+        roadmapWeeks: targetRoadmapWeeks
       });
 
-      const refinedDraft = await this.callModel(refinementPrompt, { maxOutputTokens: 1300 });
-      const refinedQuality = this.evaluateQuality(command, refinedDraft);
+      const refinedDraft = await this.callModel(refinementPrompt, { maxOutputTokens: refinePassTokens });
+      const refinedQuality = this.evaluateQuality(command, refinedDraft, {
+        roadmapWeeks: targetRoadmapWeeks
+      });
 
       if (refinedQuality.pass) {
         return refinedDraft;
@@ -672,6 +882,7 @@ class GeminiService {
     const p = typeof platform === 'string' ? platform.trim().toLowerCase() : 'any';
 
     const allowedLinks = new Set(ctx.map((r) => r.link).filter(Boolean));
+    const contextByLink = new Map(ctx.filter((r) => r?.link).map((r) => [r.link, r]));
     const maxPerPlatform = Math.min(Math.max(Number.parseInt(diversity?.maxPerPlatform, 10) || 2, 1), safeLimit);
     const minPlatforms = Math.min(Math.max(Number.parseInt(diversity?.minPlatforms, 10) || 2, 1), safeLimit);
 
@@ -685,44 +896,15 @@ class GeminiService {
       ? 'Platform filter: ANY.'
       : `Platform filter: ONLY use "${p}" links from the provided search results.`;
 
-    const prompt = [
-      'You are a professional cybersecurity training advisor.',
-      '',
-      'Task: recommend real, practical cybersecurity labs based on the user query.',
-      'You MUST use only the provided search results; do not invent lab names or links.',
-      '',
-      'Rules:',
+    const prompt = buildLabsRecommendationPrompt({
+      q,
+      safeLimit,
       accessRule,
       platformRule,
-      `- Recommend 1 to ${safeLimit} labs related to the query.`,
-      '- If fewer valid labs are available in the search results, return only those available labs.',
-      '- Prefer platforms: Hack The Box, TryHackMe, PortSwigger Web Security Academy, OWASP, OverTheWire, picoCTF (subject to access filter).',
-      `- Try to include multiple platforms (at least ${minPlatforms} different platforms if possible).`,
-      `- Do not pick more than ${maxPerPlatform} labs from the same platform unless the search results do not support diversity.`,
-      '- Use realistic labs/rooms/modules/pages from those platforms.',
-      '- Descriptions must be short (2-3 lines max).',
-      '- Include "difficulty" for each lab as exactly one of: "Beginner", "Intermediate", "Advanced".',
-      '- If the snippet/title hints: Easy/Apprentice/Beginner => Beginner, Medium/Practitioner/Intermediate => Intermediate, Hard/Expert/Advanced => Advanced.',
-      '- If difficulty is unclear, choose "Intermediate".',
-      '',
-      'Return only valid JSON matching this schema:',
-      '[',
-      '  {',
-      '    "lab_name": "Lab Name Here",',
-      '    "platform": "Platform Name",',
-      '    "link": "Must match exactly one of the provided search result links",',
-      '    "description": "Short description here",',
-      '    "difficulty": "Beginner|Intermediate|Advanced"',
-      '  }',
-      ']',
-      '',
-      `User Query: ${q || 'general cybersecurity labs'}`,
-      '',
-      `Max labs: ${safeLimit}`,
-      '',
-      'Search Results (JSON):',
-      JSON.stringify(ctx)
-    ].join('\n');
+      minPlatforms,
+      maxPerPlatform,
+      ctx
+    });
 
     const raw = await this.callModel(prompt, { maxOutputTokens: 900 });
 
@@ -742,14 +924,40 @@ class GeminiService {
       throw new Error('Model did not return a JSON array for lab recommendations.');
     }
 
-    const isLikelyPaidUrl = (rawLink) => {
+    const hasPremiumSignal = (item) => {
+      const link = typeof item?.link === 'string' ? item.link : '';
+      const title = typeof item?.title === 'string' ? item.title : '';
+      const snippet = typeof item?.snippet === 'string' ? item.snippet : '';
+      const description = typeof item?.description === 'string' ? item.description : '';
+      const text = `${title} ${snippet} ${description} ${link}`.toLowerCase();
+      return /premium|subscribe|subscription|required plan|paid plan|upgrade|members only|pro only|unlocked with/i.test(text)
+        || /why-subscribe|roomcode=|modulecode=/.test(text);
+    };
+
+    const parseInput = (input) => {
+      if (typeof input === 'string') {
+        const meta = contextByLink.get(input) || {};
+        return { link: input, ...meta };
+      }
+      if (input && typeof input === 'object') {
+        const link = typeof input.link === 'string' ? input.link : '';
+        const meta = contextByLink.get(link) || {};
+        return { ...meta, ...input, link };
+      }
+      return { link: '' };
+    };
+
+    const isLikelyPaidUrl = (input) => {
+      const item = parseInput(input);
+      const rawLink = item.link;
       try {
         const url = new URL(rawLink);
         const host = url.hostname.toLowerCase();
         const path = url.pathname || '/';
 
         if (host === 'tryhackme.com' || host === 'www.tryhackme.com') {
-          return path.startsWith('/path/') || path.startsWith('/r/path/');
+          if (path.startsWith('/path/') || path.startsWith('/r/path/') || path.startsWith('/why-subscribe')) return true;
+          return hasPremiumSignal(item);
         }
         if (host === 'app.hackthebox.com') {
           return path === '/tracks'
@@ -766,7 +974,9 @@ class GeminiService {
       }
     };
 
-    const isLikelyFreeUrl = (rawLink) => {
+    const isLikelyFreeUrl = (input) => {
+      const item = parseInput(input);
+      const rawLink = item.link;
       try {
         const url = new URL(rawLink);
         const host = url.hostname.toLowerCase();
@@ -776,7 +986,9 @@ class GeminiService {
           return true;
         }
         if (host === 'tryhackme.com' || host === 'www.tryhackme.com') {
-          return path.startsWith('/room/') || path.startsWith('/module/');
+          if (path.startsWith('/why-subscribe')) return false;
+          if (!(path.startsWith('/room/') || path.startsWith('/module/'))) return false;
+          return !hasPremiumSignal(item);
         }
         if (host === 'app.hackthebox.com') {
           return path.startsWith('/starting-point');
@@ -787,7 +999,9 @@ class GeminiService {
       }
     };
 
-    const isAllowedByAccess = (rawLink) => {
+    const isAllowedByAccess = (input) => {
+      const item = parseInput(input);
+      const rawLink = item.link;
       if (a === 'any') return true;
       try {
         const host = new URL(rawLink).hostname.toLowerCase();
@@ -801,11 +1015,11 @@ class GeminiService {
             'www.tryhackme.com',
             'app.hackthebox.com'
           ];
-          return knownHosts.includes(host) && isLikelyFreeUrl(rawLink);
+          return knownHosts.includes(host) && isLikelyFreeUrl(item);
         }
         if (a === 'paid') {
           const paidHosts = ['tryhackme.com', 'www.tryhackme.com', 'academy.hackthebox.com', 'app.hackthebox.com'];
-          return paidHosts.includes(host) && isLikelyPaidUrl(rawLink);
+          return paidHosts.includes(host) && isLikelyPaidUrl(item);
         }
         return true;
       } catch {
@@ -844,7 +1058,7 @@ class GeminiService {
       }))
       .filter((item) => item.lab_name && item.platform && item.link && item.description)
       .filter((item) => allowedLinks.has(item.link))
-      .filter((item) => isAllowedByAccess(item.link))
+      .filter((item) => isAllowedByAccess(item))
       .filter((item) => isAllowedByPlatform(item.link))
       .slice(0, safeLimit);
 
@@ -896,35 +1110,13 @@ class GeminiService {
       ? '- Prefer diversity: include one each of article, blog, book, GitHub repo, and walkthrough when available in candidates.'
       : '- Keep all selected items in the requested type only.';
 
-    const prompt = [
-      'You are CyberAI, a cybersecurity learning curator.',
-      '',
-      'Task: select the best cybersecurity resources from provided search results.',
-      'You MUST only use the provided links and must not invent names, links, or platforms.',
-      '',
-      'Selection rules:',
+    const prompt = buildResourceCurationPrompt({
+      q,
+      safeLimit,
       typeInstruction,
       diversityInstruction,
-      '- Prefer practical, trusted, and beginner-friendly learning resources when possible.',
-      '- Prioritize official docs/platforms and high-signal writeups over generic SEO pages.',
-      '- For books, avoid piracy mirrors and suspicious download sites.',
-      '- Keep summaries factual, concise, and based only on provided item text.',
-      '',
-      'Output rules:',
-      '- Return ONLY valid JSON array.',
-      `- Return up to ${safeLimit} items.`,
-      '- Every item must include fields exactly:',
-      '  - "name"',
-      '  - "summary"',
-      '  - "platform"',
-      '  - "type" (one of: "articles", "blogs", "github", "books", "walkthrough")',
-      '  - "link" (must exactly match one provided link)',
-      '',
-      `User query: ${q || 'cybersecurity learning resources'}`,
-      '',
-      'Candidate resources (JSON):',
-      JSON.stringify(ctx)
-    ].join('\n');
+      ctx
+    });
 
     const raw = await this.callModel(prompt, { maxOutputTokens: 900 });
 
@@ -1010,42 +1202,12 @@ class GeminiService {
           ? 'Selection filter: ONLY choose items that should be tier "Basic".'
           : 'Selection filter: any tier.';
 
-    const prompt = [
-      'You are CyberAI, a cybersecurity news editor.',
-      '',
-      'Task: from the provided RSS items, pick the most relevant stories to the given focus.',
-      'You MUST ONLY use the provided items and MUST NOT invent any new links.',
-      '',
-      'Output rules:',
-      '- Return ONLY valid JSON. No markdown, no extra text.',
-      `- Select up to ${safeLimit} items.`,
+    const prompt = buildNewsRankingPrompt({
+      f,
+      safeLimit,
       tierInstruction,
-      '- Try to include a mix of tiers if possible: at least 1 Critical, 1 Intermediate, and 1 Basic (when the pool supports it).',
-      '- For each selected item, output:',
-      '  - link: must match exactly one of the provided links',
-      '  - tier: exactly one of "Critical", "Intermediate", "Basic"',
-      '  - summary: 1 sentence based only on title/description (no guessing)',
-      '  - reason: very short (why it fits the focus or why it is important)',
-      '- Also include expanded_keywords: 5-12 short search terms for this focus (for transparency).',
-      '',
-      'Tier guidance (for zero-days):',
-      '- Critical: actively exploited, in-the-wild, confirmed zero-day exploitation, emergency patches, KEV-like language.',
-      '- Intermediate: patches released, new vulnerability reports, vendor advisories, ICS advisories without confirmed exploitation.',
-      '- Basic: weekly bulletins/roundups or general security coverage not directly about the focus.',
-      '',
-      `Focus: ${f || 'general cybersecurity'}`,
-      '',
-      'Items (JSON):',
-      JSON.stringify(ctx),
-      '',
-      'Return JSON with schema:',
-      '{',
-      '  "expanded_keywords": ["..."],',
-      '  "selected": [',
-      '    { "link": "...", "tier": "Critical|Intermediate|Basic", "summary": "...", "reason": "..." }',
-      '  ]',
-      '}'
-    ].join('\n');
+      ctx
+    });
 
     const raw = await this.callModel(prompt, { maxOutputTokens: 900 });
 
