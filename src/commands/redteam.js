@@ -4,7 +4,7 @@ const { runAICommand } = require('../utils/runAICommand');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('redteam')
-    .setDescription('Get authorized red-team learning guidance for labs/CTFs/internal testing')
+    .setDescription('Get operator-grade authorized red-team guidance for labs/CTFs/internal testing')
     .addStringOption((option) =>
       option
         .setName('objective')

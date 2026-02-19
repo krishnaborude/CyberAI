@@ -12,7 +12,7 @@ const COMMAND_GUIDANCE = {
   explain: 'Explain the concept clearly for a learner, including definitions, why it matters, practical examples, and defensive mindset.',
   tools: 'List ethical cybersecurity tools and include basic command examples for authorized labs only.',
   labs: 'Suggest legal hands-on labs, challenge flow, setup, and expected learning outcomes.',
-  redteam: 'Provide authorized red-team education for labs/CTFs/internal approved tests, including attack-chain simulation, OpSec, detection impact, and mitigation mapping.',
+  redteam: 'Provide operator-grade authorized red-team guidance for labs/CTFs/internal approved tests, with structured sections for discovery, bypass analysis, internal mapping, pivoting, MITRE mapping, and defender-focused evasion notes.',
   quiz: 'Create a multiple-choice cybersecurity quiz. Every question must include four options (A, B, C, D) and a separate answer key.',
   news: 'Summarize recent cybersecurity trends and notable incident categories with clear source links and practical implications.'
 };
@@ -98,12 +98,25 @@ const QUALITY_REQUIREMENTS = {
   roadmap: { minChars: 750, maxChars: 6200, minHeadings: 6, minBullets: 10 },
   tools: { minChars: 420, maxChars: 2400, minHeadings: 3, minBullets: 4 },
   labs: { minChars: 420, maxChars: 2400, minHeadings: 3, minBullets: 4 },
-  redteam: { minChars: 520, maxChars: 2800, minHeadings: 4, minBullets: 6 },
+  redteam: { minChars: 900, maxChars: 3800, minHeadings: 10, minBullets: 12 },
   // Quizzes are mostly line-based (Q/A/B/C/D), so bullet/heading heuristics should not force padding.
   quiz: { minChars: 260, maxChars: 2600, minHeadings: 2, minBullets: 0 },
   news: { minChars: 500, maxChars: 2600, minHeadings: 3, minBullets: 4 },
   default: { minChars: 360, maxChars: 2200, minHeadings: 3, minBullets: 4 }
 };
+
+const REDTEAM_REQUIRED_HEADINGS = [
+  'Authorization and Scope Assumptions',
+  'Discovery',
+  'Filter Analysis',
+  'Bypass Techniques (Lab-Safe, High-Level)',
+  'Internal Mapping',
+  'Metadata Extraction',
+  'Credential Abuse Paths (Authorized Simulation Only)',
+  'Pivot Potential',
+  'MITRE ATT&CK Mapping',
+  'Detection Evasion Notes (Defender View)'
+];
 
 class GeminiService {
   constructor({ apiKey, apiKeys, model, fallbackModels = [], maxRetries = 3, retryBaseMs = 1500, logger }) {
@@ -342,13 +355,17 @@ class GeminiService {
     if (command === 'redteam') {
       return [
         'Expected structure:',
-        '1) Authorization and scope assumptions',
-        '2) Threat model and objective mapping',
-        '3) Attack chain simulation (high-level, lab-safe)',
-        '4) Safe commands and tooling for authorized environments',
-        '5) Detection opportunities mapped to each phase',
-        '6) Defensive mitigations and hardening actions',
-        '7) Debrief checklist and reporting template'
+        'Use exactly these H2 headings in this order:',
+        '1) ## Authorization and Scope Assumptions',
+        '2) ## Discovery',
+        '3) ## Filter Analysis',
+        '4) ## Bypass Techniques (Lab-Safe, High-Level)',
+        '5) ## Internal Mapping',
+        '6) ## Metadata Extraction',
+        '7) ## Credential Abuse Paths (Authorized Simulation Only)',
+        '8) ## Pivot Potential',
+        '9) ## MITRE ATT&CK Mapping',
+        '10) ## Detection Evasion Notes (Defender View)'
       ].join('\n');
     }
 
@@ -392,9 +409,12 @@ class GeminiService {
         'Red-team specific rules (strict):',
         '- Assume testing is only in authorized scope explicitly provided by the user.',
         '- Do not provide steps for real-world unauthorized targets.',
-        '- High-level guidance only: exploit payloads, working attack commands, and no real-target guidance.',
+        '- High-level guidance only: no exploit payloads, no working attack commands, and no real-target guidance.',
         '- Do not provide malware development, persistence abuse, credential theft playbooks, or stealth evasion instructions for abuse.',
-        '- Focus on lab-safe simulation, detection insights, and blue-team mitigation mapping.',
+        '- Include operational reasoning for discovery, filter analysis, bypass paths, internal mapping, and pivot opportunities.',
+        '- Credential-abuse discussion must stay in authorized simulation context and include controls to prevent abuse.',
+        '- MITRE section must include ATT&CK technique IDs (for example: T1059, T1021.001).',
+        '- Detection-evasion notes must be defender-oriented: telemetry to watch, hunt logic, and alerting cues.',
         '- Keep formatting easy to read in Discord: headings + flat "-" bullets only.',
         '- No nested lists. No inline bullets inside paragraphs.',
         '- Include a reminder to document findings and obtain written permission.'
@@ -541,6 +561,29 @@ class GeminiService {
       });
     }
 
+    if (command === 'redteam') {
+      return [
+        CYBERAI_SYSTEM_PROMPT,
+        '',
+        'Output format requirements (strict):',
+        '- Return only the final response in clean markdown. No extra commentary.',
+        '- Use exactly the required H2 sections in the required order.',
+        '- Keep bullets flat with "-" only; no nested bullets.',
+        '- Keep content concise but operator-grade and practical.',
+        '- Do not use markdown tables.',
+        '',
+        'Safety requirements:',
+        ...safetyRequirements,
+        '',
+        detailTemplate,
+        commandRules ? '' : null,
+        commandRules || null,
+        '',
+        `Command context: ${commandGuidance}`,
+        `User request: ${userInput || 'No extra context provided.'}`
+      ].filter(Boolean).join('\n');
+    }
+
     return [
       CYBERAI_SYSTEM_PROMPT,
       '',
@@ -655,6 +698,57 @@ class GeminiService {
     };
   }
 
+  validateRedteamCompleteness(text) {
+    const issues = [];
+    const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const getSectionBody = (title) => {
+      const escaped = escapeRegex(title);
+      const sectionRegex = new RegExp(
+        `(?:^|\\n)#{2,6}\\s+${escaped}\\s*\\n([\\s\\S]*?)(?=\\n#{2,6}\\s+|$)`,
+        'i'
+      );
+      const match = text.match(sectionRegex);
+      return match ? match[1].trim() : '';
+    };
+
+    const missingHeadings = REDTEAM_REQUIRED_HEADINGS.filter((title) => {
+      const escaped = escapeRegex(title);
+      return !new RegExp(`(?:^|\\n)#{2,6}\\s+${escaped}\\s*$`, 'mi').test(text);
+    });
+
+    if (missingHeadings.length > 0) {
+      issues.push(`Red-team structure incomplete: missing sections -> ${missingHeadings.join(', ')}.`);
+    }
+
+    const thinSections = [];
+    for (const title of REDTEAM_REQUIRED_HEADINGS) {
+      const body = getSectionBody(title);
+      if (!body) continue;
+      const hasBullet = /(?:^|\n)\s*(?:[-*]|\d+\.)\s+\S+/m.test(body);
+      const wordCount = body.split(/\s+/).filter(Boolean).length;
+      if (!hasBullet && wordCount < 12) {
+        thinSections.push(title);
+      }
+    }
+    if (thinSections.length > 0) {
+      issues.push(`Red-team depth is too thin in sections -> ${thinSections.join(', ')}.`);
+    }
+
+    if (!/(?:^|\n)[^\n]*\bT\d{4}(?:\.\d{3})?\b/.test(text)) {
+      issues.push('MITRE mapping is missing ATT&CK technique IDs (for example: T1059, T1021.001).');
+    }
+
+    const evasionNotes = getSectionBody('Detection Evasion Notes (Defender View)');
+    if (evasionNotes && !/\b(detect|detection|telemetry|logs?|edr|siem|alert|hunt)\b/i.test(evasionNotes)) {
+      issues.push('Detection Evasion Notes must include defender-focused telemetry or detection guidance.');
+    }
+
+    return {
+      valid: issues.length === 0,
+      issues
+    };
+  }
+
   evaluateQuality(command, text, context = {}) {
     const requirement = this.getRequirement(command);
     const headingCount = this.countMatches(text, /(?:^|\n)#{2,6}\s+/g);
@@ -687,6 +781,13 @@ class GeminiService {
       });
       if (!roadmapValidation.valid) {
         issues.push(...roadmapValidation.issues);
+      }
+    }
+
+    if (command === 'redteam') {
+      const redteamValidation = this.validateRedteamCompleteness(text);
+      if (!redteamValidation.valid) {
+        issues.push(...redteamValidation.issues);
       }
     }
 
@@ -726,6 +827,18 @@ class GeminiService {
         '- Keep the output markdown-only and Discord-friendly.'
       ]
       : [];
+    const redteamRefinementRules = command === 'redteam'
+      ? [
+        '',
+        'Red-team refinement requirements (strict):',
+        '- Keep guidance limited to authorized lab/CTF/internal-approved scope.',
+        '- Use exactly these H2 headings and keep them in this order:',
+        ...REDTEAM_REQUIRED_HEADINGS.map((title) => `- ## ${title}`),
+        '- Include at least one concrete bullet in every section.',
+        '- Include ATT&CK IDs in MITRE mapping (for example: T1059, T1021.001).',
+        '- Keep Detection Evasion Notes defender-focused (telemetry, detection logic, alerting cues), not bypass instructions.'
+      ]
+      : [];
 
     return [
       'Improve the following draft response.',
@@ -733,6 +846,7 @@ class GeminiService {
       'Fix these quality issues:',
       ...issues.map((issue) => `- ${issue}`),
       ...roadmapRefinementRules,
+      ...redteamRefinementRules,
       '',
       'Condense aggressively when the draft is too long or repetitive.',
       'Stay strictly on-topic and remove generic policy filler.',
@@ -806,8 +920,9 @@ class GeminiService {
   async generateCyberResponse({ command, userInput }) {
     const prompt = this.buildPrompt({ command, userInput });
     const targetRoadmapWeeks = command === 'roadmap' ? (this.inferRoadmapWeeks(userInput) || 8) : null;
-    const firstPassTokens = command === 'roadmap' ? 1650 : 1100;
-    const refinePassTokens = command === 'roadmap' ? 2100 : 1300;
+    const firstPassTokens = command === 'roadmap' ? 1650 : (command === 'redteam' ? 1700 : 1100);
+    const refinePassTokens = command === 'roadmap' ? 2100 : (command === 'redteam' ? 2600 : 1300);
+    const recoveryPassTokens = command === 'redteam' ? 3000 : refinePassTokens;
 
     try {
       const firstDraft = await this.callModel(prompt, { maxOutputTokens: firstPassTokens });
@@ -846,6 +961,43 @@ class GeminiService {
 
       if (refinedQuality.pass) {
         return refinedDraft;
+      }
+
+      if (command === 'redteam') {
+        const combinedIssues = Array.from(new Set([
+          ...(Array.isArray(firstQuality.issues) ? firstQuality.issues : []),
+          ...(Array.isArray(refinedQuality.issues) ? refinedQuality.issues : [])
+        ]));
+
+        this.logger.info('Red-team refinement still low quality, attempting recovery pass', {
+          command,
+          issues: combinedIssues
+        });
+
+        const recoveryPrompt = this.buildRefinementPrompt({
+          command,
+          userInput,
+          draft: refinedDraft,
+          issues: combinedIssues,
+          roadmapWeeks: targetRoadmapWeeks
+        });
+
+        const recoveryDraft = await this.callModel(recoveryPrompt, { maxOutputTokens: recoveryPassTokens });
+        const recoveryQuality = this.evaluateQuality(command, recoveryDraft, {
+          roadmapWeeks: targetRoadmapWeeks
+        });
+
+        if (recoveryQuality.pass) {
+          return recoveryDraft;
+        }
+
+        if (recoveryQuality.issues.length < refinedQuality.issues.length) {
+          return recoveryDraft;
+        }
+
+        if (recoveryQuality.issues.length === refinedQuality.issues.length && recoveryDraft.length > refinedDraft.length) {
+          return recoveryDraft;
+        }
       }
 
       // Fallback to the stronger draft by simple score (fewer issues wins; then longer text).

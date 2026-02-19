@@ -306,6 +306,15 @@ function formatRedteamMarkdown(input) {
   // Promote common red-team section titles to headings if they aren't already.
   const sectionTitles = [
     'Authorization and Scope Assumptions',
+    'Discovery',
+    'Filter Analysis',
+    'Bypass Techniques (Lab-Safe, High-Level)',
+    'Internal Mapping',
+    'Metadata Extraction',
+    'Credential Abuse Paths (Authorized Simulation Only)',
+    'Pivot Potential',
+    'MITRE ATT&CK Mapping',
+    'Detection Evasion Notes (Defender View)',
     'Threat Model and Objective Mapping',
     'Attack Chain Simulation (High-Level, Lab-Safe)',
     'Safe Commands and Tooling for Authorized Environments',
