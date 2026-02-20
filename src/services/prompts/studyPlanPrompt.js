@@ -48,6 +48,56 @@ function buildFocusWeightingGuidance(focusArea, weeks) {
   ];
 }
 
+function buildExperienceScalingGuidance(experienceLevel, focusArea) {
+  const level = String(experienceLevel || '').trim().toLowerCase();
+  const focus = String(focusArea || '').trim().toLowerCase();
+  const isADFocused = focus.includes('active directory') || /\bad\b/.test(focus);
+
+  if (level === 'beginner') {
+    return [
+      '- Experience-level scaling (Beginner): introduce core fundamentals before advanced attack techniques.',
+      isADFocused
+        ? '- Start with foundational Active Directory concepts (domain model, identities, trust boundaries, core protocols) before AD abuse paths.'
+        : '- Introduce foundational concepts for the selected focus area before advanced tradecraft.',
+      '- Delay advanced persistence/evasion topics until enumeration and initial-access fundamentals are consistently demonstrated.',
+      '- Include structured repetition of enumeration workflow across multiple weeks and lab targets.'
+    ];
+  }
+
+  if (level === 'intermediate') {
+    return [
+      '- Experience-level scaling (Intermediate): keep fundamentals concise, then increase attack-chain depth and troubleshooting complexity.',
+      '- Use measurable progression from repeatable methodology to faster independent execution.'
+    ];
+  }
+
+  if (level === 'advanced') {
+    return [
+      '- Experience-level scaling (Advanced): minimize basics, maximize complex chaining, edge-case handling, and rigorous reporting quality.'
+    ];
+  }
+
+  return [
+    '- Calibrate depth and pacing to the stated experience level with explicit progression.'
+  ];
+}
+
+function buildIntensityGuidance(hoursPerWeek) {
+  const hours = Number.parseInt(String(hoursPerWeek || '').trim(), 10);
+  if (!Number.isFinite(hours) || hours < 25) {
+    return [
+      '- Keep weekly workload realistic for the provided hours-per-week constraint.'
+    ];
+  }
+
+  return [
+    `- Intensity mode enabled (${hours}h/week): include a suggested daily structure (for example 4-5 hour blocks).`,
+    '- Include a weekend full-chain simulation block each week.',
+    '- Include explicit time distribution percentages (enumeration %, exploitation %, reporting %).',
+    '- Show how high-intensity cadence maps to measurable weekly deliverables.'
+  ];
+}
+
 function buildStudyPlanPrompt({
   systemPrompt,
   commandGuidance,
@@ -61,6 +111,8 @@ function buildStudyPlanPrompt({
   const parsed = parseStudyPlanInput(userInput);
   const certGuidance = buildCertificationGuidance(parsed.certification);
   const focusGuidance = buildFocusWeightingGuidance(parsed.focusArea, weeks);
+  const experienceGuidance = buildExperienceScalingGuidance(parsed.experienceLevel, parsed.focusArea);
+  const intensityGuidance = buildIntensityGuidance(parsed.hoursPerWeek);
 
   return [
     systemPrompt,
@@ -93,6 +145,8 @@ function buildStudyPlanPrompt({
     'Certification-aware tailoring:',
     ...certGuidance,
     ...focusGuidance,
+    ...experienceGuidance,
+    ...intensityGuidance,
     '',
     'Safety requirements:',
     ...safetyRequirements,

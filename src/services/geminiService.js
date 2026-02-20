@@ -122,6 +122,17 @@ const REDTEAM_REQUIRED_HEADINGS = [
   'Detection Evasion Notes (Defender View)'
 ];
 
+const STUDYPLAN_REQUIRED_HEADINGS = [
+  'Overview Summary',
+  'Weekly Breakdown',
+  'Skills Progression Milestones',
+  'Recommended Lab Types',
+  'Practice Strategy',
+  'Review & Reinforcement Plan',
+  'Final Exam Readiness Checklist',
+  'Certification Alignment Notes'
+];
+
 class GeminiService {
   constructor({ apiKey, apiKeys, model, fallbackModels = [], maxRetries = 3, retryBaseMs = 1500, logger }) {
     const keys = Array.isArray(apiKeys) ? apiKeys : [];
@@ -873,6 +884,134 @@ class GeminiService {
     };
   }
 
+  validateStudyPlanCompleteness(text, {
+    expectedWeeks = null,
+    studyPlanCertification = '',
+    studyPlanFocusArea = ''
+  } = {}) {
+    const issues = [];
+    const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const getSectionBody = (title) => {
+      const escaped = escapeRegex(title);
+      const sectionRegex = new RegExp(
+        `(?:^|\\n)#{2,6}\\s+${escaped}\\s*\\n([\\s\\S]*?)(?=\\n#{2,6}\\s+|$)`,
+        'i'
+      );
+      const match = text.match(sectionRegex);
+      return match ? match[1].trim() : '';
+    };
+
+    const missingHeadings = STUDYPLAN_REQUIRED_HEADINGS.filter((title) => {
+      const escaped = escapeRegex(title);
+      return !new RegExp(`(?:^|\\n)#{2,6}\\s+${escaped}\\s*$`, 'mi').test(text);
+    });
+    if (missingHeadings.length > 0) {
+      issues.push(`Study plan structure incomplete: missing sections -> ${missingHeadings.join(', ')}.`);
+    }
+
+    const hasTableHeader = /(?:^|\n)\s*\|?\s*Week\s*\|\s*Focus\s*\|\s*Objectives\s*\|\s*Labs\/Practice\s*\|\s*Deliverable\s*\|?/i.test(text);
+    const hasTableSeparator = /(?:^|\n)\s*\|?\s*:?-{2,}:?\s*\|\s*:?-{2,}:?\s*\|\s*:?-{2,}:?\s*\|\s*:?-{2,}:?\s*\|\s*:?-{2,}:?\s*\|?/i.test(text);
+    if (!hasTableHeader || !hasTableSeparator) {
+      issues.push('Weekly Breakdown must include a markdown table with columns: Week | Focus | Objectives | Labs/Practice | Deliverable.');
+    }
+    if (/<br\s*\/?>/i.test(text)) {
+      issues.push('Weekly Breakdown should not use HTML line breaks (<br>). Keep cells concise plain text.');
+    }
+
+    const weekNumbers = [];
+    const weekRegex = /(?:^|\n|\|)\s*Week\s+(\d{1,2})\b/gim;
+    let weekMatch = weekRegex.exec(text);
+    while (weekMatch) {
+      const value = Number.parseInt(weekMatch[1], 10);
+      if (Number.isFinite(value)) weekNumbers.push(value);
+      weekMatch = weekRegex.exec(text);
+    }
+    const uniqueWeeks = new Set(weekNumbers);
+    const maxWeek = weekNumbers.length > 0 ? Math.max(...weekNumbers) : 0;
+    if (Number.isFinite(expectedWeeks)) {
+      if (uniqueWeeks.size < expectedWeeks || maxWeek < expectedWeeks) {
+        issues.push(`Study plan is incomplete: requested ${expectedWeeks} weeks but coverage only reaches Week ${maxWeek || 0}.`);
+      }
+    } else if (uniqueWeeks.size < 4) {
+      issues.push('Study plan is incomplete: include at least 4 explicit weeks in the weekly breakdown.');
+    }
+
+    const overview = getSectionBody('Overview Summary');
+    if (overview) {
+      const sentenceCount = (overview.match(/[.!?](?:\s|$)/g) || []).length;
+      if (sentenceCount < 3 || sentenceCount > 5) {
+        issues.push('Overview Summary should be 3-5 sentences.');
+      }
+    }
+
+    const checklist = getSectionBody('Final Exam Readiness Checklist');
+    if (checklist) {
+      const checklistItems = this.countMatches(checklist, /(?:^|\n)\s*(?:-|\d+\.)\s+\S+/g);
+      if (checklistItems < 5) {
+        issues.push('Final Exam Readiness Checklist should include at least 5 concrete checklist items.');
+      }
+    }
+
+    const alignmentNotes = getSectionBody('Certification Alignment Notes');
+    if (alignmentNotes) {
+      const alignmentItems = this.countMatches(alignmentNotes, /(?:^|\n)\s*(?:-|\d+\.)\s+\S+/g);
+      if (alignmentItems < 3) {
+        issues.push('Certification Alignment Notes should include at least 3 concrete bullets.');
+      }
+    }
+
+    for (const heading of STUDYPLAN_REQUIRED_HEADINGS) {
+      const body = getSectionBody(heading);
+      const wordCount = body.split(/\s+/).filter(Boolean).length;
+      const minWords = heading === 'Certification Alignment Notes' ? 12 : 20;
+      if (!body || wordCount < minWords) {
+        issues.push(`Study plan section is too thin or missing detail -> ${heading}.`);
+      }
+    }
+
+    const cert = String(studyPlanCertification || '').trim();
+    const allText = text.toLowerCase();
+    if (cert) {
+      const certTokens = cert.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 3);
+      const certMentioned = certTokens.length === 0 || certTokens.some((token) => allText.includes(token));
+      if (!certMentioned) {
+        issues.push(`Certification alignment is weak: "${cert}" is not clearly referenced.`);
+      }
+    }
+
+    const focus = String(studyPlanFocusArea || '').toLowerCase().trim();
+    const weeklyBody = getSectionBody('Weekly Breakdown').toLowerCase();
+    if (focus && Number.isFinite(expectedWeeks) && weeklyBody) {
+      const terms = [];
+      if (focus.includes('web')) terms.push('web', 'http', 'burp', 'sqli', 'xss', 'owasp');
+      if (focus.includes('active directory') || /\bad\b/.test(focus)) terms.push('ad', 'active directory', 'kerberos', 'bloodhound', 'ldap');
+      if (focus.includes('cloud')) terms.push('cloud', 'iam', 's3', 'azure', 'gcp', 'aws');
+      if (focus.includes('network')) terms.push('network', 'nmap', 'service', 'smb', 'snmp');
+      if (terms.length === 0) {
+        terms.push(...focus.split(/[^a-z0-9]+/).filter((token) => token.length >= 3).slice(0, 4));
+      }
+      const weekRows = weeklyBody.split('\n').filter((line) => /\|\s*week\s+\d+/i.test(line) || /^\s*week\s+\d+/i.test(line));
+      const matchedWeeks = weekRows.filter((line) => terms.some((term) => line.includes(term))).length;
+      const requiredMatches = Math.max(2, Math.ceil(expectedWeeks * 0.5));
+      if (matchedWeeks < requiredMatches) {
+        issues.push(`Focus-area weighting is weak: "${studyPlanFocusArea}" should dominate at least ${requiredMatches} weeks.`);
+      }
+    }
+
+    const trimmed = text.trim();
+    if (/[\n\r]\s*-\s*$/.test(trimmed) || /(?:^|\n)\s*##\s*[^\n]*\s*$/.test(trimmed)) {
+      issues.push('Study plan appears truncated near the end; complete all remaining sections.');
+    }
+    if (trimmed && !/[.!?`|)\]]$/.test(trimmed)) {
+      issues.push('Study plan appears truncated at the end; finish the final checklist cleanly.');
+    }
+
+    return {
+      valid: issues.length === 0,
+      issues
+    };
+  }
+
   evaluateQuality(command, text, context = {}) {
     const requirement = this.getRequirement(command);
     const headingCount = this.countMatches(text, /(?:^|\n)#{2,6}\s+/g);
@@ -905,6 +1044,17 @@ class GeminiService {
       });
       if (!roadmapValidation.valid) {
         issues.push(...roadmapValidation.issues);
+      }
+    }
+
+    if (command === 'studyplan') {
+      const studyPlanValidation = this.validateStudyPlanCompleteness(text, {
+        expectedWeeks: context.studyPlanWeeks || null,
+        studyPlanCertification: context.studyPlanCertification || '',
+        studyPlanFocusArea: context.studyPlanFocusArea || ''
+      });
+      if (!studyPlanValidation.valid) {
+        issues.push(...studyPlanValidation.issues);
       }
     }
 
@@ -960,6 +1110,29 @@ class GeminiService {
         '- Keep the output markdown-only and Discord-friendly.'
       ]
       : [];
+    const studyPlanRefinementRules = command === 'studyplan'
+      ? [
+        '',
+        'Study-plan refinement requirements (strict):',
+        '- Use exactly these H2 headings in this order:',
+        ...STUDYPLAN_REQUIRED_HEADINGS.map((title) => `- ## ${title}`),
+        '- Weekly Breakdown must be a markdown table with columns: Week | Focus | Objectives | Labs/Practice | Deliverable.',
+        Number.isFinite(studyPlanWeeks)
+          ? `- Include all weeks from Week 1 through Week ${studyPlanWeeks} with no gaps.`
+          : '- Include at least Week 1 through Week 4.',
+        '- Keep cells concise and plain text only (no <br> tags, no bullet lists inside cells).',
+        '- Keep Overview Summary between 3 and 5 sentences.',
+        '- Include at least 5 concrete checklist items in Final Exam Readiness Checklist.',
+        '- Include Certification Alignment Notes with at least 3 concise bullets.',
+        studyPlanCertification
+          ? `- Explicitly align tasks and outcomes to "${studyPlanCertification}" exam style.`
+          : '- Explicitly align tasks and outcomes to the selected certification exam style.',
+        studyPlanFocusArea
+          ? `- Ensure "${studyPlanFocusArea}" dominates most weeks (at least 50% of total weeks).`
+          : '- Ensure the stated focus area dominates most weeks.',
+        '- Keep week flow attack-chain oriented (external recon -> foothold -> escalation/pivot -> reporting/debrief).'
+      ]
+      : [];
     const redteamRefinementRules = command === 'redteam'
       ? [
         '',
@@ -979,6 +1152,7 @@ class GeminiService {
       'Fix these quality issues:',
       ...issues.map((issue) => `- ${issue}`),
       ...roadmapRefinementRules,
+      ...studyPlanRefinementRules,
       ...redteamRefinementRules,
       '',
       'Condense aggressively when the draft is too long or repetitive.',
@@ -1053,9 +1227,13 @@ class GeminiService {
   async generateCyberResponse({ command, userInput }) {
     const prompt = this.buildPrompt({ command, userInput });
     const targetRoadmapWeeks = command === 'roadmap' ? (this.inferRoadmapWeeks(userInput) || 8) : null;
-    const firstPassTokens = command === 'roadmap' ? 1650 : (command === 'redteam' ? 1700 : 1100);
-    const refinePassTokens = command === 'roadmap' ? 2100 : (command === 'redteam' ? 2600 : 1300);
-    const recoveryPassTokens = command === 'redteam' ? 3000 : refinePassTokens;
+    const studyPlanContext = command === 'studyplan' ? this.inferStudyPlanContext(userInput) : null;
+    const targetStudyPlanWeeks = command === 'studyplan'
+      ? (studyPlanContext?.durationWeeks || this.inferStudyPlanWeeks(userInput) || 8)
+      : null;
+    const firstPassTokens = command === 'roadmap' ? 1650 : (command === 'studyplan' ? 1900 : (command === 'redteam' ? 1700 : 1100));
+    const refinePassTokens = command === 'roadmap' ? 2100 : (command === 'studyplan' ? 2600 : (command === 'redteam' ? 2600 : 1300));
+    const recoveryPassTokens = command === 'redteam' ? 3000 : (command === 'studyplan' ? 3200 : refinePassTokens);
 
     try {
       const firstDraft = await this.callModel(prompt, { maxOutputTokens: firstPassTokens });
@@ -1105,13 +1283,13 @@ class GeminiService {
         return refinedDraft;
       }
 
-      if (command === 'redteam') {
+      if (command === 'redteam' || command === 'studyplan') {
         const combinedIssues = Array.from(new Set([
           ...(Array.isArray(firstQuality.issues) ? firstQuality.issues : []),
           ...(Array.isArray(refinedQuality.issues) ? refinedQuality.issues : [])
         ]));
 
-        this.logger.info('Red-team refinement still low quality, attempting recovery pass', {
+        this.logger.info(`${command} refinement still low quality, attempting recovery pass`, {
           command,
           issues: combinedIssues
         });
@@ -1121,12 +1299,18 @@ class GeminiService {
           userInput,
           draft: refinedDraft,
           issues: combinedIssues,
-          roadmapWeeks: targetRoadmapWeeks
+          roadmapWeeks: targetRoadmapWeeks,
+          studyPlanWeeks: targetStudyPlanWeeks,
+          studyPlanCertification: studyPlanContext?.certification || '',
+          studyPlanFocusArea: studyPlanContext?.focusArea || ''
         });
 
         const recoveryDraft = await this.callModel(recoveryPrompt, { maxOutputTokens: recoveryPassTokens });
         const recoveryQuality = this.evaluateQuality(command, recoveryDraft, {
-          roadmapWeeks: targetRoadmapWeeks
+          roadmapWeeks: targetRoadmapWeeks,
+          studyPlanWeeks: targetStudyPlanWeeks,
+          studyPlanCertification: studyPlanContext?.certification || '',
+          studyPlanFocusArea: studyPlanContext?.focusArea || ''
         });
 
         if (recoveryQuality.pass) {
