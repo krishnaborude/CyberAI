@@ -1,4 +1,4 @@
-﻿![CyberAI - Ethical Cybersecurity Discord Bot](./assets/logo.png)
+![CyberAI - Ethical Cybersecurity Discord Bot](./assets/logo.png)
 
 # CyberAI - Ethical Offensive Security Learning Assistant
 
@@ -27,7 +27,7 @@ CyberAI is designed to:
 
 ### High-Level Data Flow
 
-![High-level data flow: User → Discord → AI Service → Safety Filter → Response](./assets/image.png)
+![High-level data flow: User -> Discord -> AI Service -> Safety Filter -> Response](./assets/image.png)
 
 
 ```text
@@ -58,6 +58,7 @@ Discord Slash Command
 | Command | Purpose | Security Notes |
 |---|---|---|
 | `/roadmap` | Learning roadmap generation | Input guard + rate limiting + constrained prompting |
+| `/studyplan` | Certification-focused offensive security study planner | Structured 7-section output + weekly breakdown + quality validation |
 | `/explain` | Concept explanation | Safety-constrained educational output |
 | `/tools` | Tooling overview for labs | No weaponized output policy |
 | `/labs` | Search-grounded lab recommendations | External link grounding + platform filtering |

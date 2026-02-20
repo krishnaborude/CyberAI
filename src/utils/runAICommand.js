@@ -94,7 +94,9 @@ async function runAICommand({
 
   aiResponse = formatResponseByCommand(command, aiResponse);
 
-  const userInputLine = sanitizedInput ? `**User Input:** ${sanitizedInput}` : '';
+  const userInputLine = sanitizedInput && command !== 'studyplan'
+    ? `**User Input:** ${sanitizedInput}`
+    : '';
 
   const finalResponse = [prependText, userInputLine, aiResponse, appendText]
     .map((part) => (typeof part === 'string' ? part.trim() : ''))
@@ -102,7 +104,8 @@ async function runAICommand({
     .join('\n\n');
 
   const minChunks = finalResponse.length > 1700 ? 2 : 1;
-  const chunks = smartSplitMessage(finalResponse, { minChunks, maxChunks: 3 });
+  const maxChunks = command === 'studyplan' ? 5 : 3;
+  const chunks = smartSplitMessage(finalResponse, { minChunks, maxChunks });
   await sendChunkedResponse(interaction, chunks);
 
   logger.info('Command completed', {
