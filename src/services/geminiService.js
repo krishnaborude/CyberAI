@@ -386,17 +386,6 @@ class GeminiService {
         '8) ## Pivot Potential',
         '9) ## MITRE ATT&CK Mapping',
         '10) ## Detection Evasion Notes (Defender View)'
-        'Use exactly these H2 headings in this order:',
-        '1) ## Authorization and Scope Assumptions',
-        '2) ## Discovery',
-        '3) ## Filter Analysis',
-        '4) ## Bypass Techniques (Lab-Safe, High-Level)',
-        '5) ## Internal Mapping',
-        '6) ## Metadata Extraction',
-        '7) ## Credential Abuse Paths (Authorized Simulation Only)',
-        '8) ## Pivot Potential',
-        '9) ## MITRE ATT&CK Mapping',
-        '10) ## Detection Evasion Notes (Defender View)'
       ].join('\n');
     }
 
