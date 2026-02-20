@@ -94,6 +94,17 @@ function packSegments(segments, maxLen) {
       continue;
     }
 
+    // If a heading section is too large, split by paragraph boundaries first
+    // to avoid cutting structured rows/lists in awkward places.
+    const paragraphParts = splitByParagraphs(segment);
+    if (paragraphParts.length > 1) {
+      const subChunks = packSegments(paragraphParts, maxLen);
+      if (subChunks.length > 0) {
+        chunks.push(...subChunks);
+        continue;
+      }
+    }
+
     const sentenceParts = splitBySentence(segment);
     if (sentenceParts.length === 0) {
       chunks.push(segment.slice(0, maxLen));
@@ -102,7 +113,7 @@ function packSegments(segments, maxLen) {
 
     let sentenceChunk = '';
     for (const sentence of sentenceParts) {
-      const sentenceCandidate = sentenceChunk ? `${sentenceChunk} ${sentence}` : sentence;
+      const sentenceCandidate = sentenceChunk ? `${sentenceChunk}\n${sentence}` : sentence;
       if (sentenceCandidate.length <= maxLen) {
         sentenceChunk = sentenceCandidate;
       } else {

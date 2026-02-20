@@ -1,4 +1,4 @@
-﻿![CyberAI - Ethical Cybersecurity Discord Bot](./assets/logo.png)
+![CyberAI - Ethical Cybersecurity Discord Bot](./assets/logo.png)
 
 # CyberAI - Ethical Offensive Security Learning Assistant
 
@@ -216,13 +216,44 @@ npm run register
 ```bash
 npm start
 ```
+## Installation and Run
 
+### Requirements
+
+- Node.js 20+
+- Discord application and bot token
+- Gemini API key
+
+### Quick Start
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Create `.env` from `.env.example` and set required values.
+
+3. Register slash commands:
+
+```bash
+npm run register
+```
+
+4. Start the bot:
+
+```bash
+npm start
+```
+
+For development:
 For development:
 
 ```bash
 npm run dev
 ```
 
+## Environment Variables
 ## Environment Variables
 
 | Variable | Required | Description |
@@ -258,8 +289,75 @@ pm2 save
 pm2 startup
 pm2 logs cyberai-bot
 ```
+| Variable | Required | Description |
+|---|---|---|
+| `DISCORD_TOKEN` | Yes | Discord bot token |
+| `DISCORD_CLIENT_ID` | Yes | Discord application client ID |
+| `DISCORD_GUILD_ID` | No | Guild-scoped registration target |
+| `GEMINI_API_KEY` | Yes | Primary Gemini key |
+| `GEMINI_API_KEY_2` | No | Secondary Gemini key |
+| `GEMINI_API_KEYS` | No | Comma-separated additional Gemini keys |
+| `GEMINI_MODEL` | No | Primary model (default `gemini-2.5-flash`) |
+| `GEMINI_FALLBACK_MODELS` | No | Comma-separated model fallbacks |
+| `GEMINI_MAX_RETRIES` | No | Retry count for retriable provider errors |
+| `GEMINI_RETRY_BASE_MS` | No | Exponential backoff base delay |
+| `SERPER_API_KEY` | No | Search provider key for `/labs` and `/resource` |
+| `SERPER_API_KEY_2` | No | Secondary search provider key |
+| `SERPER_API_KEYS` | No | Comma-separated additional search keys |
+| `RATE_LIMIT_WINDOW_MS` | No | Rate-limit window |
+| `RATE_LIMIT_MAX_REQUESTS` | No | Max requests per user per window |
+| `MAX_PROMPT_CHARS` | No | Input length cap |
+| `NODE_ENV` | No | Runtime mode |
+
+## Deployment (VPS/24x7)
+
+Example with PM2:
+
+```bash
+npm ci --omit=dev
+npm run register
+npm i -g pm2
+pm2 start src/index.js --name cyberai-bot
+pm2 save
+pm2 startup
+pm2 logs cyberai-bot
+```
 
 Hardening checklist:
+Hardening checklist:
+
+- Run as non-root user.
+- Restrict host firewall to required ports only.
+- Store `.env` with strict filesystem permissions.
+- Rotate API keys on a defined schedule.
+- Add external uptime and anomaly monitoring.
+
+## Secure Development Notes
+
+- Keep command handlers thin; business logic belongs in services/utilities.
+- Route AI interactions through `runAICommand` for consistent guardrails.
+- Do not bypass input guard or rate limiter in new commands.
+- Keep user-facing failures sanitized and avoid leaking internals.
+
+## Intended Use
+
+CyberAI is intended for:
+
+- Offensive security students
+- CTF preparation
+- Authorized internal lab simulations
+- Defensive-awareness reinforcement for offensive workflows
+
+CyberAI is not intended for unauthorized real-world exploitation guidance.
+
+## Alignment With Offensive Security Engineering Principles
+
+This project demonstrates:
+
+- Enumeration discipline in how commands, threats, and controls are explicitly surfaced and documented.
+- Explicit scope enforcement for offensive workflows, especially `/redteam` and lab-only guidance.
+- Attack-chain contextualization that ties offensive techniques to defender visibility and mitigation.
+- Responsible disclosure mindset and emphasis on ethical, authorized use in all workflows and documentation.
 
 - Run as non-root user.
 - Restrict host firewall to required ports only.

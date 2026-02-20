@@ -53,7 +53,7 @@ function formatTableAsDiscordList(headers, rows) {
     for (let i = 1; i < cleanedHeaders.length; i += 1) {
       const value = row[i];
       if (!value) continue;
-      lines.push(`  **${cleanedHeaders[i]}:** ${value}`);
+      lines.push(`- **${cleanedHeaders[i]}:** ${value}`);
     }
 
     return lines.join('\n');
@@ -188,7 +188,7 @@ function trimVerboseRefusalPreface(text) {
   return trimmed.replace(/^I\s+can,\s+however,\s*/i, '').trim();
 }
 
-function formatGenericMarkdown(input) {
+function formatGenericMarkdown(input, { preserveTables = false } = {}) {
   const raw = typeof input === 'string' ? input : '';
   if (!raw.trim()) return raw;
 
@@ -234,7 +234,10 @@ function formatGenericMarkdown(input) {
   }
 
   // Discord does not render markdown pipe tables well; convert them to readable list blocks.
-  text = convertMarkdownTablesToDiscordLists(text);
+  // Some command outputs explicitly require table format, so allow preserving tables when needed.
+  if (!preserveTables) {
+    text = convertMarkdownTablesToDiscordLists(text);
+  }
 
   // Make payload/query snippets copyable by adding fenced code blocks after labeled lines.
   text = injectCopyableCodeBlocks(text);
@@ -342,9 +345,67 @@ function formatRedteamMarkdown(input) {
   return restorePlaceholders(text, placeholders);
 }
 
+function formatStudyPlanMarkdown(input) {
+  const raw = typeof input === 'string' ? input : '';
+  if (!raw.trim()) return raw;
+
+  const { protectedText, placeholders } = protectCodeBlocks(raw.replace(/\r\n/g, '\n'));
+  let text = protectedText.trim();
+
+  text = text.replace(/([^\n])\s*\*\s{2,}(?=[A-Z])/g, '$1\n- ');
+  text = text.replace(/(^|\n)\s*\*\s+(?=\S)/g, '$1- ');
+
+  const sectionTitles = [
+    'Overview Summary',
+    'Weekly Breakdown',
+    'Skills Progression Milestones',
+    'Recommended Lab Types',
+    'Practice Strategy',
+    'Review & Reinforcement Plan',
+    'Final Exam Readiness Checklist',
+    'Certification Alignment Notes'
+  ];
+  for (const title of sectionTitles) {
+    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(^|\\n)\\s*(?!#{1,6}\\s)${escaped}\\s*\\n`, 'g');
+    text = text.replace(re, `$1## ${title}\n`);
+  }
+
+  const weeklySectionRegex = /((?:^|\n)#{2,6}\s+Weekly Breakdown\s*\n)([\s\S]*?)(?=\n#{2,6}\s+|$)/i;
+  text = text.replace(weeklySectionRegex, (full, heading, body) => {
+    let normalized = typeof body === 'string' ? body.trim() : '';
+    if (!normalized) return `${heading}`;
+
+    // Normalize mixed bold label variants first (e.g., "**Focus:**", "** Focus: **").
+    normalized = normalized.replace(/\*\*\s*(Week|Focus|Objectives|Labs\/Practice|Deliverable)\s*:\s*\*\*/gi, '$1: ');
+    normalized = normalized.replace(/\*\*\s*(Week|Focus|Objectives|Labs\/Practice|Deliverable)\s*:\s*/gi, '$1: ');
+    normalized = normalized.replace(/(Week|Focus|Objectives|Labs\/Practice|Deliverable)\s*:\s*\*\*/gi, '$1: ');
+    normalized = normalized.replace(/(^|\n)\s*\*\*\s*(?=\n|$)/g, '$1');
+
+    // Repair collapsed label sequences such as "Week: 1Focus: ...Objectives: ...".
+    normalized = normalized.replace(/(?<!\n)(?=(Week|Focus|Objectives|Labs\/Practice|Deliverable)\s*:)/gi, '\n');
+
+    // Normalize to consistent bullet labels for Discord readability.
+    normalized = normalized.replace(/(^|\n)(?:-+\s*)?(?:\*\*)?\s*Week\s*:\s*(?:Week\s*)?(\d+)\s*(?:\*\*)?\s*/gi, '$1- **Week:** Week $2\n');
+    normalized = normalized.replace(/(^|\n)(?:-+\s*)?(?:\*\*)?\s*Focus\s*:\s*(?:\*\*)?\s*/gi, '$1- **Focus:** ');
+    normalized = normalized.replace(/(^|\n)(?:-+\s*)?(?:\*\*)?\s*Objectives\s*:\s*(?:\*\*)?\s*/gi, '$1- **Objectives:** ');
+    normalized = normalized.replace(/(^|\n)(?:-+\s*)?(?:\*\*)?\s*Labs\/Practice\s*:\s*(?:\*\*)?\s*/gi, '$1- **Labs/Practice:** ');
+    normalized = normalized.replace(/(^|\n)(?:-+\s*)?(?:\*\*)?\s*Deliverable\s*:\s*(?:\*\*)?\s*/gi, '$1- **Deliverable:** ');
+
+    normalized = normalized.replace(/\n{3,}/g, '\n\n').trim();
+    return `${heading}${normalized}\n`;
+  });
+
+  text = text.replace(/([^\n])\n(##\s+)/g, '$1\n\n$2');
+  text = text.replace(/\n{3,}/g, '\n\n').trim();
+
+  return restorePlaceholders(text, placeholders);
+}
+
 function formatResponseByCommand(command, text) {
   const base = formatGenericMarkdown(text);
   if (command === 'roadmap') return formatRoadmapMarkdown(base);
+  if (command === 'studyplan') return formatStudyPlanMarkdown(base);
   if (command === 'redteam') return formatRedteamMarkdown(base);
   return base;
 }
