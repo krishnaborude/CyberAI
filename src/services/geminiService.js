@@ -104,7 +104,7 @@ const QUALITY_REQUIREMENTS = {
   redteam: { minChars: 900, maxChars: 3800, minHeadings: 10, minBullets: 12 },
   redteam: { minChars: 900, maxChars: 3800, minHeadings: 10, minBullets: 12 },
   // Quizzes are mostly line-based (Q/A/B/C/D), so bullet/heading heuristics should not force padding.
-  quiz: { minChars: 260, maxChars: 2600, minHeadings: 2, minBullets: 0 },
+  quiz: { minChars: 260, maxChars: 5200, minHeadings: 2, minBullets: 0 },
   news: { minChars: 500, maxChars: 2600, minHeadings: 3, minBullets: 4 },
   default: { minChars: 360, maxChars: 2200, minHeadings: 3, minBullets: 4 }
 };
@@ -619,6 +619,28 @@ class GeminiService {
     };
   }
 
+  inferQuizQuestionCount(userInput) {
+    const input = typeof userInput === 'string' ? userInput.trim().toLowerCase() : '';
+    if (!input) return null;
+
+    const clamp = (value) => {
+      if (!Number.isFinite(value)) return null;
+      return Math.min(10, Math.max(3, Math.floor(value)));
+    };
+
+    const labeled = input.match(/questions?\s*:\s*(\d{1,2})/i);
+    if (labeled) {
+      return clamp(Number.parseInt(labeled[1], 10));
+    }
+
+    const inline = input.match(/(\d{1,2})\s*questions?\b/i);
+    if (inline) {
+      return clamp(Number.parseInt(inline[1], 10));
+    }
+
+    return null;
+  }
+
   buildPrompt({ command, userInput }) {
     const commandGuidance = COMMAND_GUIDANCE[command] || 'Provide a helpful cybersecurity learning response.';
     const detailTemplate = this.buildDetailTemplate(command);
@@ -626,6 +648,7 @@ class GeminiService {
     const safetyRequirements = this.buildSafetyRequirements(command);
 
     if (command === 'quiz') {
+      const quizQuestions = this.inferQuizQuestionCount(userInput) || 5;
       return [
         CYBERAI_SYSTEM_PROMPT,
         '',
@@ -634,6 +657,9 @@ class GeminiService {
         '- Keep formatting compact and easy to read in Discord.',
         '- Do not use markdown tables; use headings, short lines, and bullets only.',
         '- Use blank lines between questions.',
+        `- Generate exactly ${quizQuestions} questions.`,
+        `- "## Answer Key" must include exactly ${quizQuestions} lines (Q1 through Q${quizQuestions}).`,
+        '- If output gets long, shorten wording but never reduce question count.',
         '',
         'Safety requirements:',
         ...safetyRequirements,
@@ -793,26 +819,43 @@ class GeminiService {
     return matches ? matches.length : 0;
   }
 
-  validateQuizFormat(text) {
-    const questionCount = this.countMatches(text, /(?:^|\n)(?:[-*]\s+)?Q\d+[:).]/gmi)
-      || this.countMatches(text, /(?:^|\n)(?:\d+\.|Question\s+\d+)/gmi);
+  validateQuizFormat(text, { expectedQuestions = null } = {}) {
+    const questionsSectionMatch = text.match(
+      /(?:^|\n)#{2,6}\s*Questions\s*\n([\s\S]*?)(?=\n#{2,6}\s*Answer\s*Key\b|$)/i
+    );
+    const questionsBody = questionsSectionMatch ? questionsSectionMatch[1] : text;
 
-    const aCount = this.countMatches(text, /(?:^|\n)\s*(?:[-*]\s+)?A\)\s+/gmi);
-    const bCount = this.countMatches(text, /(?:^|\n)\s*(?:[-*]\s+)?B\)\s+/gmi);
-    const cCount = this.countMatches(text, /(?:^|\n)\s*(?:[-*]\s+)?C\)\s+/gmi);
-    const dCount = this.countMatches(text, /(?:^|\n)\s*(?:[-*]\s+)?D\)\s+/gmi);
+    const answerKeyMatch = text.match(
+      /(?:^|\n)#{2,6}\s*Answer\s*Key\s*\n([\s\S]*)$/i
+    );
+    const answerKeyBody = answerKeyMatch ? answerKeyMatch[1] : '';
+
+    const questionCount = this.countMatches(questionsBody, /(?:^|\n)\s*(?:[-*]\s+)?Q\d+[:).]/gmi)
+      || this.countMatches(questionsBody, /(?:^|\n)\s*(?:\d+\.|Question\s+\d+)/gmi);
+
+    const aCount = this.countMatches(questionsBody, /(?:^|\n)\s*(?:[-*]\s+)?A\)\s+/gmi);
+    const bCount = this.countMatches(questionsBody, /(?:^|\n)\s*(?:[-*]\s+)?B\)\s+/gmi);
+    const cCount = this.countMatches(questionsBody, /(?:^|\n)\s*(?:[-*]\s+)?C\)\s+/gmi);
+    const dCount = this.countMatches(questionsBody, /(?:^|\n)\s*(?:[-*]\s+)?D\)\s+/gmi);
     const hasAnswerKey = /(?:^|\n)##\s*Answer\s*Key/mi.test(text);
-    const keyCount = this.countMatches(text, /(?:^|\n)\s*Q\d+\s*:\s*[ABCD]\s*$/gmi);
+    const keyCount = this.countMatches(answerKeyBody, /(?:^|\n)\s*Q\d+\s*:\s*[ABCD]\s*$/gmi);
 
     const optionSetCount = Math.min(aCount, bCount, cCount, dCount);
 
     if (!hasAnswerKey) return { valid: false, reason: 'Missing answer key section.' };
+    if (questionCount < 1) return { valid: false, reason: 'No quiz questions detected.' };
     if (optionSetCount < 3) return { valid: false, reason: 'Missing required MCQ options A/B/C/D.' };
-    if (questionCount > 0 && optionSetCount < questionCount) {
+    if (optionSetCount < questionCount) {
       return { valid: false, reason: 'Not all questions include A/B/C/D options.' };
     }
-    if (questionCount > 0 && keyCount > 0 && keyCount < questionCount) {
+    if (keyCount < questionCount) {
       return { valid: false, reason: 'Answer key appears incomplete (missing some Q#: <letter> lines).' };
+    }
+    if (Number.isFinite(expectedQuestions) && expectedQuestions > 0 && questionCount !== expectedQuestions) {
+      return { valid: false, reason: `Question count mismatch: expected ${expectedQuestions}, found ${questionCount}.` };
+    }
+    if (Number.isFinite(expectedQuestions) && expectedQuestions > 0 && keyCount !== expectedQuestions) {
+      return { valid: false, reason: `Answer key count mismatch: expected ${expectedQuestions}, found ${keyCount}.` };
     }
 
     return { valid: true, reason: '' };
@@ -1159,7 +1202,9 @@ class GeminiService {
     }
 
     if (command === 'quiz') {
-      const quizValidation = this.validateQuizFormat(text);
+      const quizValidation = this.validateQuizFormat(text, {
+        expectedQuestions: context.quizQuestions || null
+      });
       if (!quizValidation.valid) {
         issues.push(quizValidation.reason);
       }
@@ -1225,6 +1270,7 @@ class GeminiService {
     issues,
     roadmapWeeks = null,
     studyPlanWeeks = null,
+    quizQuestions = null,
     studyPlanCertification = '',
     studyPlanFocusArea = ''
   }) {
@@ -1283,6 +1329,18 @@ class GeminiService {
         '- Keep the response concise and directly actionable.'
       ]
       : [];
+    const quizRefinementRules = command === 'quiz'
+      ? [
+        '',
+        'Quiz refinement requirements (strict):',
+        Number.isFinite(quizQuestions)
+          ? `- Generate exactly ${quizQuestions} questions.`
+          : '- Generate the requested question count from user input.',
+        '- Keep format exactly: Qn + options A/B/C/D.',
+        '- Include "## Answer Key" with one line per question (Qn: <letter>).',
+        '- Never stop mid-question; complete all questions and the full answer key.'
+      ]
+      : [];
     const redteamRefinementRules = command === 'redteam'
       ? [
         '',
@@ -1304,6 +1362,7 @@ class GeminiService {
       ...roadmapRefinementRules,
       ...studyPlanRefinementRules,
       ...explainRefinementRules,
+      ...quizRefinementRules,
       ...redteamRefinementRules,
       '',
       'Condense aggressively when the draft is too long or repetitive.',
@@ -1382,31 +1441,39 @@ class GeminiService {
     const targetStudyPlanWeeks = command === 'studyplan'
       ? (studyPlanContext?.durationWeeks || this.inferStudyPlanWeeks(userInput) || 8)
       : null;
+    const targetQuizQuestions = command === 'quiz' ? (this.inferQuizQuestionCount(userInput) || 5) : null;
     const firstPassTokens = command === 'roadmap'
       ? 1650
       : (command === 'studyplan'
         ? 1900
         : (command === 'redteam'
           ? 1700
-          : (command === 'explain' ? 2200 : 1100)));
+          : (command === 'explain'
+            ? 2200
+            : (command === 'quiz' ? 2200 : 1100))));
     const refinePassTokens = command === 'roadmap'
       ? 2100
       : (command === 'studyplan'
         ? 2600
         : (command === 'redteam'
           ? 2600
-          : (command === 'explain' ? 2800 : 1300)));
+          : (command === 'explain'
+            ? 2800
+            : (command === 'quiz' ? 2800 : 1300))));
     const recoveryPassTokens = command === 'redteam'
       ? 3000
       : (command === 'studyplan'
         ? 3200
-        : (command === 'explain' ? 3000 : refinePassTokens));
+        : (command === 'explain'
+          ? 3000
+          : (command === 'quiz' ? 3000 : refinePassTokens)));
 
     try {
       const firstDraft = await this.callModel(prompt, { maxOutputTokens: firstPassTokens });
       const firstQuality = this.evaluateQuality(command, firstDraft, {
         roadmapWeeks: targetRoadmapWeeks,
         studyPlanWeeks: targetStudyPlanWeeks,
+        quizQuestions: targetQuizQuestions,
         studyPlanCertification: studyPlanContext?.certification || '',
         studyPlanFocusArea: studyPlanContext?.focusArea || ''
       });
@@ -1434,6 +1501,7 @@ class GeminiService {
         issues: firstQuality.issues,
         roadmapWeeks: targetRoadmapWeeks,
         studyPlanWeeks: targetStudyPlanWeeks,
+        quizQuestions: targetQuizQuestions,
         studyPlanCertification: studyPlanContext?.certification || '',
         studyPlanFocusArea: studyPlanContext?.focusArea || ''
       });
@@ -1442,6 +1510,7 @@ class GeminiService {
       const refinedQuality = this.evaluateQuality(command, refinedDraft, {
         roadmapWeeks: targetRoadmapWeeks,
         studyPlanWeeks: targetStudyPlanWeeks,
+        quizQuestions: targetQuizQuestions,
         studyPlanCertification: studyPlanContext?.certification || '',
         studyPlanFocusArea: studyPlanContext?.focusArea || ''
       });
@@ -1450,7 +1519,7 @@ class GeminiService {
         return refinedDraft;
       }
 
-      if (command === 'redteam' || command === 'studyplan' || command === 'explain') {
+      if (command === 'redteam' || command === 'studyplan' || command === 'explain' || command === 'quiz') {
         const combinedIssues = Array.from(new Set([
           ...(Array.isArray(firstQuality.issues) ? firstQuality.issues : []),
           ...(Array.isArray(refinedQuality.issues) ? refinedQuality.issues : [])
@@ -1468,6 +1537,7 @@ class GeminiService {
           issues: combinedIssues,
           roadmapWeeks: targetRoadmapWeeks,
           studyPlanWeeks: targetStudyPlanWeeks,
+          quizQuestions: targetQuizQuestions,
           studyPlanCertification: studyPlanContext?.certification || '',
           studyPlanFocusArea: studyPlanContext?.focusArea || ''
         });
@@ -1476,6 +1546,7 @@ class GeminiService {
         const recoveryQuality = this.evaluateQuality(command, recoveryDraft, {
           roadmapWeeks: targetRoadmapWeeks,
           studyPlanWeeks: targetStudyPlanWeeks,
+          quizQuestions: targetQuizQuestions,
           studyPlanCertification: studyPlanContext?.certification || '',
           studyPlanFocusArea: studyPlanContext?.focusArea || ''
         });

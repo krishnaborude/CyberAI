@@ -9,11 +9,11 @@ module.exports = {
       option
         .setName('focus')
         .setDescription('Focus area (network, web, blue-team, recon, malware-analysis)')
-        .setRequired(false)
+        .setRequired(true)
     ),
 
   async execute(ctx) {
-    const focus = ctx.interaction.options.getString('focus') || 'General ethical cybersecurity toolkit with beginner commands';
+    const focus = ctx.interaction.options.getString('focus', true);
 
     await runAICommand({
       interaction: ctx.interaction,
