@@ -96,7 +96,7 @@ const CYBERAI_SYSTEM_PROMPT = [
 ].join('\n');
 
 const QUALITY_REQUIREMENTS = {
-  explain: { minChars: 420, maxChars: 2600, minHeadings: 3, minBullets: 4 },
+  explain: { minChars: 1500, maxChars: 5200, minHeadings: 5, minBullets: 12 },
   roadmap: { minChars: 750, maxChars: 6200, minHeadings: 6, minBullets: 10 },
   studyplan: { minChars: 1000, maxChars: 6200, minHeadings: 8, minBullets: 14 },
   tools: { minChars: 420, maxChars: 2400, minHeadings: 3, minBullets: 4 },
@@ -131,6 +131,14 @@ const STUDYPLAN_REQUIRED_HEADINGS = [
   'Review & Reinforcement Plan',
   'Final Exam Readiness Checklist',
   'Certification Alignment Notes'
+];
+
+const EXPLAIN_REQUIRED_HEADINGS = [
+  'Chunk 1/5: Concept Summary',
+  'Chunk 2/5',
+  'Chunk 3/5: Discovery Commands',
+  'Chunk 4/5: Enumeration Commands',
+  'Chunk 5/5: Validation and Safety Notes'
 ];
 
 class GeminiService {
@@ -336,14 +344,21 @@ class GeminiService {
     if (command === 'explain') {
       return [
         'Expected structure:',
-        '1) Concept Summary (simple words)',
-        '2) Foundational Basics (start from beginner level)',
-        '3) Core Technical Breakdown',
-        '4) Defensive Use Cases',
-        '5) Safe Basic Commands (authorized lab only)',
-        '6) Common Mistakes and How to Avoid Them',
-        '7) Mini Practice Task',
-        '8) Key Takeaways'
+        'Use exactly these H2 headings in this order:',
+        '1) ## Chunk 1/5: Concept Summary',
+        '2) ## Chunk 2/5',
+        '3) ## Chunk 3/5: Discovery Commands',
+        '4) ## Chunk 4/5: Enumeration Commands',
+        '5) ## Chunk 5/5: Validation and Safety Notes',
+        'Chunk requirements:',
+        '- Chunk 2 must include safe target setup (isolated lab + private IP example).',
+        '- Chunk 2 must explicitly include attacker VM, target VM, isolated network mode, and private subnet/IP example.',
+        '- Chunk 2 must not be command-only text.',
+        '- Chunk 3 must include at least 4 practical discovery commands in fenced bash code blocks.',
+        '- Chunk 4 must include at least 4 practical enumeration commands in fenced bash code blocks.',
+        '- Include at least 3 fenced bash code blocks total.',
+        '- Keep all commands non-destructive and reconnaissance-focused.',
+        '- Keep wording concise and Discord-readable.'
       ].join('\n');
     }
 
@@ -436,6 +451,22 @@ class GeminiService {
         '- Include Certification Alignment Notes with at least 3 concise bullets.',
         '- Use practical, measurable milestones and exam readiness criteria.',
         '- Keep bullets flat (no nested bullet lists).'
+      ].join('\n');
+    }
+
+    if (command === 'explain') {
+      return [
+        'Explain-specific rules (strict):',
+        '- Keep exactly 5 sections with the required chunk headings.',
+        '- Keep content substantial: target at least ~250 words overall.',
+        '- Include at least 3 fenced bash code blocks total.',
+        '- In command sections, include practical commands plus a one-line purpose for each command.',
+        '- Chunk 1 should provide meaningful concept depth (not one short paragraph).',
+        '- Chunk 3 must include at least 4 discovery commands.',
+        '- Chunk 4 must include at least 4 enumeration commands.',
+        '- Include safe-target setup guidance (attacker VM, target VM, isolated network mode, private subnet/IP example).',
+        '- Chunk 2 must not be only one command; include clear setup steps and safety context.',
+        '- Keep all guidance authorized-lab only and avoid exploit payloads or real-target instructions.'
       ].join('\n');
     }
 
@@ -1012,6 +1043,102 @@ class GeminiService {
     };
   }
 
+  validateExplainCompleteness(text) {
+    const issues = [];
+    const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const getSectionBody = (title) => {
+      const escaped = escapeRegex(title);
+      const sectionRegex = new RegExp(
+        `(?:^|\\n)#{2,6}\\s+${escaped}\\s*\\n([\\s\\S]*?)(?=\\n#{2,6}\\s+|$)`,
+        'i'
+      );
+      const match = text.match(sectionRegex);
+      return match ? match[1].trim() : '';
+    };
+
+    const missingHeadings = EXPLAIN_REQUIRED_HEADINGS.filter((title) => {
+      const escaped = escapeRegex(title);
+      return !new RegExp(`(?:^|\\n)#{2,6}\\s+${escaped}\\s*$`, 'mi').test(text);
+    });
+    if (missingHeadings.length > 0) {
+      issues.push(`Explain structure incomplete: missing sections -> ${missingHeadings.join(', ')}.`);
+    }
+
+    const conceptBody = getSectionBody('Chunk 1/5: Concept Summary');
+    const discoveryBody = getSectionBody('Chunk 3/5: Discovery Commands');
+    const enumerationBody = getSectionBody('Chunk 4/5: Enumeration Commands');
+    const safeTargetBody = getSectionBody('Chunk 2/5');
+    const totalWordCount = text.split(/\s+/).filter(Boolean).length;
+    const conceptWordCount = conceptBody.split(/\s+/).filter(Boolean).length;
+    const safeTargetWordCount = safeTargetBody.split(/\s+/).filter(Boolean).length;
+    const safeTargetBullets = this.countMatches(safeTargetBody, /(?:^|\n)\s*(?:-|\d+\.)\s+\S+/g);
+    const commandLineRegex = /(?:^|\n)\s*(?:nmap|nbtscan|smbclient|smbmap|rpcclient|enum4linux(?:-ng)?|netexec|crackmapexec)\b[^\n]*/gmi;
+    const totalCommandLines = this.countMatches(text, commandLineRegex);
+    const discoveryCommandLines = this.countMatches(discoveryBody, commandLineRegex);
+    const enumerationCommandLines = this.countMatches(enumerationBody, commandLineRegex);
+
+    const codeBlockCount = this.countMatches(text, /```(?:bash|sh|shell|zsh)?\n[\s\S]*?```/g);
+    if (codeBlockCount < 3) {
+      issues.push('Explain response should include at least 3 fenced bash code blocks with practical commands.');
+    }
+
+    if (discoveryBody && !/```/.test(discoveryBody)) {
+      issues.push('Chunk 3/5 should include a fenced code block with discovery commands.');
+    }
+    if (enumerationBody && !/```/.test(enumerationBody)) {
+      issues.push('Chunk 4/5 should include a fenced code block with enumeration commands.');
+    }
+    if (safeTargetBody && !/\b(lab|ctf|isolated|private|host-only|internal)\b/i.test(safeTargetBody)) {
+      issues.push('Chunk 2/5 should clearly define a safe isolated lab target setup.');
+    }
+    if (conceptBody && conceptWordCount < 70) {
+      issues.push(`Chunk 1/5 is too brief (${conceptWordCount} words, need at least 70).`);
+    }
+    if (safeTargetBody && safeTargetWordCount < 80) {
+      issues.push(`Chunk 2/5 is too brief (${safeTargetWordCount} words, need at least 80).`);
+    }
+    if (safeTargetBody && safeTargetBullets < 3) {
+      issues.push(`Chunk 2/5 should include at least 3 setup bullets (${safeTargetBullets} found).`);
+    }
+    if (safeTargetBody && !/\b(attacker|kali|parrot)\b/i.test(safeTargetBody)) {
+      issues.push('Chunk 2/5 should explicitly mention the attacker VM setup.');
+    }
+    if (safeTargetBody && !/\b(target|windows|server|victim)\b/i.test(safeTargetBody)) {
+      issues.push('Chunk 2/5 should explicitly mention the target VM setup.');
+    }
+    if (safeTargetBody && !/\b(host-only|internal network|isolated network|private network|nat)\b/i.test(safeTargetBody)) {
+      issues.push('Chunk 2/5 should explicitly define isolated network mode.');
+    }
+    if (safeTargetBody && !/\b\d{1,3}(?:\.\d{1,3}){3}(?:\/\d{1,2})?\b/.test(safeTargetBody)) {
+      issues.push('Chunk 2/5 should include a private IP or subnet example.');
+    }
+    if (safeTargetBody && totalCommandLines > 0 && safeTargetWordCount < 40) {
+      issues.push('Chunk 2/5 appears command-only; add setup steps and safety context.');
+    }
+
+    if (totalWordCount < 250) {
+      issues.push(`Explain response is too brief (${totalWordCount} words, need at least 250).`);
+    }
+    if (totalCommandLines < 8) {
+      issues.push(`Explain response needs more practical commands (${totalCommandLines} found, need at least 8).`);
+    }
+    if (discoveryBody && discoveryCommandLines < 4) {
+      issues.push(`Chunk 3/5 needs more discovery commands (${discoveryCommandLines} found, need at least 4).`);
+    }
+    if (enumerationBody && enumerationCommandLines < 4) {
+      issues.push(`Chunk 4/5 needs more enumeration commands (${enumerationCommandLines} found, need at least 4).`);
+    }
+
+    if (!/\b(authorized|permission|owned|lab)\b/i.test(text)) {
+      issues.push('Explain response must include authorized-use safety context.');
+    }
+
+    return {
+      valid: issues.length === 0,
+      issues
+    };
+  }
+
   evaluateQuality(command, text, context = {}) {
     const requirement = this.getRequirement(command);
     const headingCount = this.countMatches(text, /(?:^|\n)#{2,6}\s+/g);
@@ -1044,6 +1171,13 @@ class GeminiService {
       });
       if (!roadmapValidation.valid) {
         issues.push(...roadmapValidation.issues);
+      }
+    }
+
+    if (command === 'explain') {
+      const explainValidation = this.validateExplainCompleteness(text);
+      if (!explainValidation.valid) {
+        issues.push(...explainValidation.issues);
       }
     }
 
@@ -1133,6 +1267,22 @@ class GeminiService {
         '- Keep week flow attack-chain oriented (external recon -> foothold -> escalation/pivot -> reporting/debrief).'
       ]
       : [];
+    const explainRefinementRules = command === 'explain'
+      ? [
+        '',
+        'Explain refinement requirements (strict):',
+        '- Use exactly these H2 headings in this order:',
+        ...EXPLAIN_REQUIRED_HEADINGS.map((title) => `- ## ${title}`),
+        '- Keep response detailed: at least ~250 words total.',
+        '- Include at least 3 fenced bash code blocks total.',
+        '- Chunk 1 must include meaningful concept depth (at least ~70 words).',
+        '- Chunk 2 must include an isolated lab setup with attacker VM, target VM, network mode, and private IP/subnet example.',
+        '- Chunk 2 must include at least 3 setup bullets and cannot be command-only text.',
+        '- Chunk 3 must include at least 4 discovery commands with one-line purpose notes.',
+        '- Chunk 4 must include at least 4 enumeration commands with one-line purpose notes.',
+        '- Keep the response concise and directly actionable.'
+      ]
+      : [];
     const redteamRefinementRules = command === 'redteam'
       ? [
         '',
@@ -1153,6 +1303,7 @@ class GeminiService {
       ...issues.map((issue) => `- ${issue}`),
       ...roadmapRefinementRules,
       ...studyPlanRefinementRules,
+      ...explainRefinementRules,
       ...redteamRefinementRules,
       '',
       'Condense aggressively when the draft is too long or repetitive.',
@@ -1231,9 +1382,25 @@ class GeminiService {
     const targetStudyPlanWeeks = command === 'studyplan'
       ? (studyPlanContext?.durationWeeks || this.inferStudyPlanWeeks(userInput) || 8)
       : null;
-    const firstPassTokens = command === 'roadmap' ? 1650 : (command === 'studyplan' ? 1900 : (command === 'redteam' ? 1700 : 1100));
-    const refinePassTokens = command === 'roadmap' ? 2100 : (command === 'studyplan' ? 2600 : (command === 'redteam' ? 2600 : 1300));
-    const recoveryPassTokens = command === 'redteam' ? 3000 : (command === 'studyplan' ? 3200 : refinePassTokens);
+    const firstPassTokens = command === 'roadmap'
+      ? 1650
+      : (command === 'studyplan'
+        ? 1900
+        : (command === 'redteam'
+          ? 1700
+          : (command === 'explain' ? 2200 : 1100)));
+    const refinePassTokens = command === 'roadmap'
+      ? 2100
+      : (command === 'studyplan'
+        ? 2600
+        : (command === 'redteam'
+          ? 2600
+          : (command === 'explain' ? 2800 : 1300)));
+    const recoveryPassTokens = command === 'redteam'
+      ? 3000
+      : (command === 'studyplan'
+        ? 3200
+        : (command === 'explain' ? 3000 : refinePassTokens));
 
     try {
       const firstDraft = await this.callModel(prompt, { maxOutputTokens: firstPassTokens });
@@ -1283,7 +1450,7 @@ class GeminiService {
         return refinedDraft;
       }
 
-      if (command === 'redteam' || command === 'studyplan') {
+      if (command === 'redteam' || command === 'studyplan' || command === 'explain') {
         const combinedIssues = Array.from(new Set([
           ...(Array.isArray(firstQuality.issues) ? firstQuality.issues : []),
           ...(Array.isArray(refinedQuality.issues) ? refinedQuality.issues : [])

@@ -13,6 +13,88 @@ function isGeminiRateLimited(error) {
   return /GEMINI_RATE_LIMITED|429|resource exhausted|too many requests|rate limit/i.test(message);
 }
 
+function buildExplainSectionChunks(text) {
+  const input = typeof text === 'string' ? text.replace(/\r\n/g, '\n').trim() : '';
+  if (!input) return null;
+
+  const headingRegex = /(^|\n)\s*(?:#{1,6}\s*)?Chunk\s*([1-5])\s*\/\s*5(?:\s*:\s*([^\n]*))?/gmi;
+  const headings = [];
+  let match = headingRegex.exec(input);
+  while (match) {
+    headings.push({
+      index: match.index + (match[1] ? match[1].length : 0),
+      number: Number.parseInt(match[2], 10),
+      title: String(match[3] || '').trim()
+    });
+    match = headingRegex.exec(input);
+  }
+
+  if (headings.length < 5) return null;
+
+  const deduped = [];
+  const seen = new Set();
+  for (const heading of headings) {
+    if (seen.has(heading.number)) continue;
+    seen.add(heading.number);
+    deduped.push(heading);
+  }
+
+  if (deduped.length !== 5) return null;
+  for (let i = 1; i <= 5; i += 1) {
+    if (!seen.has(i)) return null;
+  }
+
+  const defaultTitles = {
+    1: 'Concept Summary',
+    2: '',
+    3: 'Discovery Commands',
+    4: 'Enumeration Commands',
+    5: 'Validation and Safety Notes'
+  };
+
+  const sectionByNumber = new Map();
+  for (let i = 0; i < deduped.length; i += 1) {
+    const start = deduped[i].index;
+    const end = i < deduped.length - 1 ? deduped[i + 1].index : input.length;
+    let section = input.slice(start, end).trim();
+    section = section.replace(
+      /^(?:#{1,6}\s*)?Chunk\s*([1-5])\s*\/\s*5(?:\s*:\s*([^\n]*))?/i,
+      (lineMatch, numberRaw, titleRaw) => {
+        const number = Number.parseInt(numberRaw, 10);
+        const title = number === 2
+          ? ''
+          : (String(titleRaw || '').trim() || defaultTitles[number] || '');
+        return title ? `## Chunk ${number}/5: ${title}` : `## Chunk ${number}/5`;
+      }
+    );
+
+    if (deduped[i].number === 2) {
+      section = section
+        .replace(/^##\s*Chunk\s*2\s*\/\s*5(?:\s*:\s*[^\n]*)?\s*\n*/i, '')
+        .trim();
+    }
+
+    sectionByNumber.set(deduped[i].number, section);
+  }
+
+  const ordered = [];
+  for (let i = 1; i <= 5; i += 1) {
+    const section = sectionByNumber.get(i);
+    if (!section) return null;
+    ordered.push(section);
+  }
+
+  return ordered;
+}
+
+function stripExplainChunkHeadings(text) {
+  const value = typeof text === 'string' ? text : '';
+  return value
+    .replace(/(^|\n)\s*(?:#{1,6}\s*)?Chunk\s*[1-5]\s*\/\s*5(?:\s*:\s*[^\n]*)?\s*(?=\n|$)/gmi, '$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 async function runAICommand({
   interaction,
   services,
@@ -103,9 +185,30 @@ async function runAICommand({
     .filter(Boolean)
     .join('\n\n');
 
-  const minChunks = finalResponse.length > 1700 ? 2 : 1;
-  const maxChunks = command === 'studyplan' ? 5 : 3;
-  const chunks = smartSplitMessage(finalResponse, { minChunks, maxChunks });
+  const explainSections = command === 'explain'
+    ? buildExplainSectionChunks(finalResponse)
+    : null;
+
+  const chunks = Array.isArray(explainSections) && explainSections.length === 5
+    ? explainSections.map((section, index) => {
+      const cleanSection = stripExplainChunkHeadings(section);
+      const withInput = index === 0 && userInputLine
+        ? `${userInputLine}\n\n${cleanSection}`
+        : cleanSection;
+      return `**\u{1F4D8} CyberAI Response (${index + 1}/5)**\n\n${withInput}`;
+    })
+    : (() => {
+      const explainSafeResponse = command === 'explain'
+        ? stripExplainChunkHeadings(finalResponse)
+        : finalResponse;
+      const minChunks = command === 'explain'
+        ? 5
+        : (explainSafeResponse.length > 1700 ? 2 : 1);
+      const maxChunks = command === 'studyplan'
+        ? 5
+        : (command === 'explain' ? 5 : 3);
+      return smartSplitMessage(explainSafeResponse, { minChunks, maxChunks });
+    })();
   await sendChunkedResponse(interaction, chunks);
 
   logger.info('Command completed', {

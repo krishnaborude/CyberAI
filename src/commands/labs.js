@@ -207,6 +207,8 @@ module.exports = {
 
     const lines = [];
     const platLabel = platformLabel(platform);
+    lines.push(`**User Input:** ${query}`);
+    lines.push('');
     lines.push(`Recommended labs for: ${query} (Platform: ${platLabel})`);
     lines.push('');
 

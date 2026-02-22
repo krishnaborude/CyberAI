@@ -61,7 +61,10 @@ module.exports = {
     // Fetch a larger pool from RSS, then let Gemini select + tier the final items (with heuristic fallback).
     const seed = await ctx.services.news.getLatestNews({ focus, limit: 24 });
     const newsData = await ctx.services.news.selectAndEnrich({ ...seed, limit: 7, tier });
-    const response = ctx.services.news.formatDigest(newsData);
+    const body = ctx.services.news.formatDigest(newsData);
+    const response = [`**User Input:** ${focus}`, '', body]
+      .filter(Boolean)
+      .join('\n');
     const chunks = smartSplitMessage(response);
 
     await sendChunkedResponse(ctx.interaction, chunks);

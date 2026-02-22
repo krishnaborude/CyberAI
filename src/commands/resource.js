@@ -254,6 +254,8 @@ module.exports = {
     }
 
     const lines = [];
+    lines.push(`**User Input:** ${query}`);
+    lines.push('');
     lines.push(`Cyber resources for: ${query}`);
     lines.push(`Filter: ${typeLabel(type)} | Count: ${limit}`);
     lines.push('');

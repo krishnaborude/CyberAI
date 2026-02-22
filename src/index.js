@@ -42,6 +42,28 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isAutocomplete()) {
+    const command = client.commands.get(interaction.commandName);
+    if (!command?.autocomplete) return;
+
+    try {
+      await command.autocomplete({
+        interaction,
+        services: client.services,
+        rateLimiter: client.rateLimiter,
+        config,
+        logger
+      });
+    } catch (error) {
+      logger.error('Autocomplete execution failed', {
+        command: interaction.commandName,
+        userId: interaction.user?.id,
+        error: error?.message || String(error)
+      });
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const command = client.commands.get(interaction.commandName);

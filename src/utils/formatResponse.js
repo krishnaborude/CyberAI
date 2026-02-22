@@ -402,10 +402,50 @@ function formatStudyPlanMarkdown(input) {
   return restorePlaceholders(text, placeholders);
 }
 
+function formatExplainMarkdown(input) {
+  const raw = typeof input === 'string' ? input : '';
+  if (!raw.trim()) return raw;
+
+  const expectedTitles = {
+    1: 'Concept Summary',
+    2: '',
+    3: 'Discovery Commands',
+    4: 'Enumeration Commands',
+    5: 'Validation and Safety Notes'
+  };
+
+  const { protectedText, placeholders } = protectCodeBlocks(raw.replace(/\r\n/g, '\n'));
+  let text = protectedText.trim();
+
+  // Normalize plain "Chunk N/5: ..." lines into H2 headings for stable chunk parsing.
+  text = text.replace(
+    /(^|\n)\s*(?:[-*]\s+|\d+[).]\s+)?(?:#{1,6}\s*)?Chunk\s*([1-5])\s*\/\s*5\s*:?\s*([^\n]*)/gmi,
+    (match, prefix, numberRaw, titleRaw) => {
+      const number = Number.parseInt(numberRaw, 10);
+      const fallbackTitle = expectedTitles[number] || '';
+      const title = number === 2
+        ? ''
+        : (String(titleRaw || '').trim() || fallbackTitle);
+      return title
+        ? `${prefix}## Chunk ${number}/5: ${title}`
+        : `${prefix}## Chunk ${number}/5`;
+    }
+  );
+
+  // Ensure a blank line before headings for readability.
+  text = text.replace(/([^\n])\n(##\s+)/g, '$1\n\n$2');
+
+  // Collapse excessive blank lines.
+  text = text.replace(/\n{3,}/g, '\n\n').trim();
+
+  return restorePlaceholders(text, placeholders);
+}
+
 function formatResponseByCommand(command, text) {
   const base = formatGenericMarkdown(text);
   if (command === 'roadmap') return formatRoadmapMarkdown(base);
   if (command === 'studyplan') return formatStudyPlanMarkdown(base);
+  if (command === 'explain') return formatExplainMarkdown(base);
   if (command === 'redteam') return formatRedteamMarkdown(base);
   return base;
 }
