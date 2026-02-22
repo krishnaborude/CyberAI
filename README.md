@@ -2,6 +2,13 @@
 
 # CyberAI - Ethical Offensive Security Learning Assistant
 
+![Node.js](https://img.shields.io/badge/node-20%2B-green)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Status](https://img.shields.io/badge/status-active-success)
+![Security](https://img.shields.io/badge/design-secure--by--default-red)
+![Top Language](https://img.shields.io/github/languages/top/krishnaborude/CyberAI?color=yellow)
+![Repo Views](https://komarev.com/ghpvc/?username=krishnaborude&repo=CyberAI&label=repo%20views&color=0e75b6&style=flat)
+
 CyberAI is a Discord bot that helps cybersecurity learners build structured, certification-aligned practice workflows while enforcing authorized-use boundaries.
 
 ## Abstract
