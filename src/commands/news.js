@@ -11,7 +11,7 @@ module.exports = {
       option
         .setName('focus')
         .setDescription('Focus area (threat intel, ransomware, cloud, zero-days)')
-        .setRequired(false)
+        .setRequired(true)
     )
     .addStringOption((option) =>
       option
@@ -27,9 +27,8 @@ module.exports = {
     ),
 
   async execute(ctx) {
-    const rawFocus = ctx.interaction.options.getString('focus');
-    const focusInput = rawFocus ? sanitizeUserInput(rawFocus, { maxChars: 120 }) : '';
-    const focus = focusInput || 'general cybersecurity';
+    const rawFocus = ctx.interaction.options.getString('focus', true);
+    const focus = sanitizeUserInput(rawFocus, { maxChars: 120 });
     const tier = (ctx.interaction.options.getString('tier') || 'all').toLowerCase();
 
     const validation = validateUserInput(focus, { required: false });

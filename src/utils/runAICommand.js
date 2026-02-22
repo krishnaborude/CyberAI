@@ -204,7 +204,7 @@ async function runAICommand({
       const minChunks = command === 'explain'
         ? 5
         : (explainSafeResponse.length > 1700 ? 2 : 1);
-      const maxChunks = command === 'studyplan'
+      const maxChunks = command === 'studyplan' || command === 'quiz'
         ? 5
         : (command === 'explain' ? 5 : 3);
       return smartSplitMessage(explainSafeResponse, { minChunks, maxChunks });
