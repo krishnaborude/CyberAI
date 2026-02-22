@@ -38,7 +38,9 @@ CyberAI addresses these challenges by combining structured learning workflows wi
 | `/explain` | Break down security concepts into practical learning chunks |
 | `/tools` | Learn safe starter tooling and common setup pitfalls |
 
-Detailed command input/output contracts are in `docs/COMMAND_SPEC.md`.
+## Documentation
+- [Architecture](docs/ARCHITECTURE.md)
+- [Command Specification](docs/COMMAND_SPEC.md)
 
 ## Example Output (Study Plan Snippet)
 ```text
@@ -84,7 +86,7 @@ Discord Slash Command
   -> Discord Reply/Follow-up
 ```
 
-For deeper technical details, see `ARCHITECTURE.md`.
+For deeper technical details, see `docs/ARCHITECTURE.md`.
 
 ## Quick Start
 ### Requirements
