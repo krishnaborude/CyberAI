@@ -2,18 +2,76 @@
 
 # CyberAI - Ethical Offensive Security Learning Assistant
 
+CyberAI is a Discord bot that helps cybersecurity learners build structured, certification-aligned practice workflows while enforcing authorized-use boundaries.
+
 ## Abstract
-CyberAI is a secure-by-design Discord bot for offensive and defensive cybersecurity learning in authorized environments. It combines input validation, prompt-injection resistance, scope-aware command gating, and reliable AI orchestration. The project is intended as a practical reference for building safer AI-powered chat assistants.
+CyberAI combines practical learning guidance, search-grounded recommendations, and safety-aware AI orchestration for offensive and defensive security education in authorized environments.
 
-## Project Objective
-CyberAI is designed to:
-- Provide structured cybersecurity learning support for authorized labs/CTFs/internal simulations.
-- Enforce safe-response discipline for dual-use security topics.
-- Demonstrate production-minded AI integration patterns in Discord.
-- Maintain modular architecture, observability, and operational reliability.
+## Why This Matters
+Many cybersecurity learners struggle with:
+- Structuring their study path for certifications
+- Knowing which labs to practice and in what order
+- Understanding full attack-chain methodology
+- Translating practice into professional reporting habits
+- Staying within ethical and authorized boundaries
 
-## Architecture Overview
-### High-Level Data Flow
+CyberAI addresses these challenges by combining structured learning workflows with AI-driven personalization and safety enforcement.
+
+## Key Differentiators
+- Structured progression workflows (`/studyplan`, `/roadmap`) instead of one-off generic advice
+- Scope-aware red-team guidance with explicit authorization context (`/redteam`)
+- Certification-aligned weekly plans with exam-readiness and alignment notes
+- Search-grounded labs/resources/news with validated links, not hallucinated URLs
+- Discord-safe response chunking that preserves formatting and readability
+- Defensive awareness integrated into offensive-learning outputs
+
+## What You Can Do
+| Command | Value |
+|---|---|
+| `/studyplan` | Build certification-focused weekly prep plans |
+| `/roadmap` | Generate phased learning roadmaps for a target role/goal |
+| `/redteam` | Get authorized-scope red-team methodology guidance |
+| `/labs` | Find relevant lab platforms and challenge paths |
+| `/resource` | Curate useful articles, blogs, repos, books, and walkthroughs |
+| `/news` | Track cybersecurity developments with practical context |
+| `/quiz` | Practice with structured MCQ sets |
+| `/explain` | Break down security concepts into practical learning chunks |
+| `/tools` | Learn safe starter tooling and common setup pitfalls |
+
+Detailed command input/output contracts are in `docs/COMMAND_SPEC.md`.
+
+## Example Output (Study Plan Snippet)
+```text
+Week 4 - Active Directory Fundamentals
+Focus: Enumeration and attack-path mapping
+Deliverable: AD topology report with identified escalation paths
+
+Certification Alignment:
+This mirrors enterprise engagement flow expected in practical certifications.
+```
+
+## Responsible AI and Safety
+- Input validation and prompt-injection checks before model generation
+- Explicit scope gating for sensitive red-team style requests
+- Rate limiting to reduce abuse and control cost
+- Grounded selection for labs/resources/news (only links from fetched candidates)
+- Safety-focused output rules that avoid weaponized instructions
+
+## Security Testing Performed
+The current implementation and validation flow covers:
+- Prompt injection simulation attempts
+- Malicious scope bypass attempts for offensive commands
+- Rate limit behavior and retry-window handling
+- Oversized response chunk validation for Discord constraints
+- Null-input, malformed-input, and unsafe-pattern handling
+
+## Known Limitations
+- Prompt injection detection is primarily rule-based.
+- Rate limiting is in-memory (Redis is better for horizontal scaling).
+- No persistent chat memory by design (privacy-first behavior).
+- Availability depends on external model and feed providers.
+
+## Architecture At a Glance
 ![High-level data flow: User -> Discord -> AI Service -> Safety Filter -> Response](./assets/image.png)
 
 ```text
@@ -26,92 +84,15 @@ Discord Slash Command
   -> Discord Reply/Follow-up
 ```
 
-### Component Responsibilities
-| Layer | Responsibility | Key Files |
-|---|---|---|
-| Discord Interface | Slash command intake and interaction lifecycle | `src/index.js`, `src/commands/*` |
-| Command Loader | Dynamic command registration/dispatch | `src/handlers/commandHandler.js` |
-| Security Utilities | Input sanitation, scope checks, rate limiting | `src/utils/inputGuard.js`, `src/utils/rateLimiter.js` |
-| AI Service | Prompting, safety constraints, retries, quality checks | `src/services/geminiService.js` |
-| Search Services | Labs/resource/news sourcing and filtering | `src/services/labsSearchService.js`, `src/services/resourceSearchService.js`, `src/services/newsService.js` |
-| Output Reliability | Formatting and Discord-safe chunking | `src/utils/formatResponse.js`, `src/utils/smartSplitMessage.js` |
-| Error Middleware | Safe user-facing failures + logging | `src/handlers/errorHandler.js` |
-| Config Layer | Environment validation and typed config | `src/config/env.js` |
+For deeper technical details, see `ARCHITECTURE.md`.
 
-## Command Surface
-| Command | Purpose | Notes |
-|---|---|---|
-| `/roadmap` | Learning roadmap generation | Structured phased plan |
-| `/studyplan` | Certification-focused offensive security study plan | Certification-aware + focus-dominant + alignment notes |
-| `/explain` | Concept explanation | Structured teaching style |
-| `/tools` | Tooling overview for labs | Safe command examples only |
-| `/labs` | Search-grounded lab recommendations | Real links + platform filters |
-| `/quiz` | Cybersecurity MCQ generation | Validated quiz format |
-| `/news` | Live cybersecurity digest | Feed-grounded ranking |
-| `/resource` | Search-grounded learning resources | Type-aware curation |
-| `/redteam` | Authorized red-team guidance | Requires explicit authorized scope evidence |
-
-## Study Plan Command
-`/studyplan` requires all of the following inputs:
-- `certification`
-- `experience_level`
-- `hours_per_week`
-- `duration_weeks`
-- `focus_area`
-
-Output format:
-1. Overview Summary
-2. Weekly Breakdown
-3. Skills Progression Milestones
-4. Recommended Lab Types
-5. Practice Strategy
-6. Review & Reinforcement Plan
-7. Final Exam Readiness Checklist
-8. Certification Alignment Notes
-
-## Security Controls
-### 1) Input Validation and Sanitization
-- Removes control characters and normalizes whitespace.
-- Neutralizes mention-abuse patterns like `@everyone` and `@here`.
-- Enforces prompt length limits.
-
-Reference: `src/utils/inputGuard.js`
-
-### 2) Prompt Injection Resistance
-- Blocks common override/jailbreak patterns.
-- Treats user input as untrusted data.
-
-Reference: `src/utils/inputGuard.js`
-
-### 3) Scope Enforcement for Offensive Guidance
-- `/redteam` requires explicit authorized scope context.
-- Out-of-scope requests are rejected before model invocation.
-
-References: `src/commands/redteam.js`, `src/utils/runAICommand.js`
-
-### 4) Abuse and Cost Control
-- In-memory per-user rate limiting with configurable window/quota.
-
-Reference: `src/utils/rateLimiter.js`
-
-### 5) Grounded External Content Selection
-- Labs/resources/news selection validates links against known candidate sets.
-
-Reference: `src/services/geminiService.js`
-
-### 6) Output Reliability
-- Smart chunking for Discord limits.
-- Heading-aware splitting and code-block protection.
-
-Reference: `src/utils/smartSplitMessage.js`
-
-## Installation and Run
+## Quick Start
 ### Requirements
 - Node.js 20+
-- Discord bot token + app client ID
+- Discord bot token and application client ID
 - Gemini API key
 
-### Quick Start
+### Setup
 1. Install dependencies:
 ```bash
 npm install
@@ -121,60 +102,42 @@ npm install
 ```bash
 npm run register
 ```
-4. Start:
+4. Start the bot:
 ```bash
 npm start
 ```
-For development:
+
+Development mode:
 ```bash
 npm run dev
 ```
 
-## Environment Variables
+## Environment Variables (Core)
 | Variable | Required | Description |
 |---|---|---|
 | `DISCORD_TOKEN` | Yes | Discord bot token |
 | `DISCORD_CLIENT_ID` | Yes | Discord application client ID |
 | `DISCORD_GUILD_ID` | No | Guild-scoped command registration |
 | `GEMINI_API_KEY` | Yes | Primary Gemini API key |
-| `GEMINI_API_KEY_2` | No | Secondary Gemini API key |
-| `GEMINI_API_KEYS` | No | Comma-separated additional Gemini keys |
-| `GEMINI_MODEL` | No | Primary model (default: `gemini-2.5-flash`) |
-| `GEMINI_FALLBACK_MODELS` | No | Comma-separated fallback models |
-| `GEMINI_MAX_RETRIES` | No | Retry count for transient errors |
-| `GEMINI_RETRY_BASE_MS` | No | Exponential backoff base delay |
 | `SERPER_API_KEY` | No | Search API key for `/labs` and `/resource` |
-| `SERPER_API_KEY_2` | No | Secondary search API key |
-| `SERPER_API_KEYS` | No | Comma-separated additional search keys |
-| `RATE_LIMIT_WINDOW_MS` | No | Rate-limit window |
-| `RATE_LIMIT_MAX_REQUESTS` | No | Max requests per user per window |
-| `MAX_PROMPT_CHARS` | No | Max input prompt chars |
-| `NODE_ENV` | No | Runtime environment |
 
-## Deployment (VPS/24x7)
-Example with PM2:
-```bash
-npm ci --omit=dev
-npm run register
-npm i -g pm2
-pm2 start src/index.js --name cyberai-bot
-pm2 save
-pm2 startup
-pm2 logs cyberai-bot
-```
+Additional tuning vars are available in `src/config/env.js`.
 
-Hardening checklist:
-- Run as non-root user.
-- Restrict firewall to required ports only.
-- Protect `.env` file permissions.
-- Rotate API keys on a schedule.
-- Add uptime and anomaly monitoring.
+## Community Impact
+CyberAI is designed to help:
+- New learners build structured offensive methodology
+- Intermediate students prepare for practical certifications
+- Community members run exam-style simulation workflows in labs
+- Users learn responsibly within explicit authorized scope
+
+The goal is not automation, but disciplined security thinking.
 
 ## Intended Use
-CyberAI is intended for:
-- Offensive security students
-- CTF preparation
-- Authorized internal lab simulations
-- Defender-aware offensive learning
+CyberAI is for authorized learning environments:
+- Personal labs
+- CTF platforms
+- Internal approved simulation exercises
 
-CyberAI is not intended for unauthorized real-world exploitation guidance.
+It is not intended for unauthorized real-world exploitation guidance.
+
+CyberAI demonstrates that AI can enhance cybersecurity education while maintaining safety, structure, and responsibility. It is built not as an exploit generator, but as a structured learning assistant for ethical practitioners.
