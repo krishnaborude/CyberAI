@@ -36,14 +36,14 @@ module.exports = {
 
     const validation = validateUserInput(query, { required: true });
     if (!validation.valid) {
-      await ctx.interaction.reply({ content: validation.reason, ephemeral: true });
+      await ctx.interaction.reply({ content: validation.reason, flags: MessageFlags.Ephemeral });
       return;
     }
 
     if (hasPromptInjection(query)) {
       await ctx.interaction.reply({
         content: 'Unsafe input pattern detected. Please provide a normal lab search query.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -53,7 +53,7 @@ module.exports = {
       const retryAfterSec = Math.ceil(rate.retryAfterMs / 1000);
       await ctx.interaction.reply({
         content: `Rate limit reached. Please wait ${retryAfterSec}s before sending another request.`,
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -61,7 +61,7 @@ module.exports = {
     if (!ctx.services.labsSearch?.hasApiKey?.()) {
       await ctx.interaction.reply({
         content: 'Live lab search is not configured. Set SERPER_API_KEY (or SERPER_API_KEY_2) in .env and restart the bot.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }

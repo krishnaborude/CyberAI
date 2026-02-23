@@ -135,10 +135,10 @@ const STUDYPLAN_REQUIRED_HEADINGS = [
 
 const EXPLAIN_REQUIRED_HEADINGS = [
   'Chunk 1/5: Concept Summary',
-  'Chunk 2/5: Why It Matters',
-  'Chunk 3/5: Practical Walkthrough',
-  'Chunk 4/5: Hands-On Checks',
-  'Chunk 5/5: Validation and Safety Notes'
+  'Chunk 2/5: Foundational Basics',
+  'Chunk 3/5: Core Technical Breakdown',
+  'Chunk 4/5: Defensive Use Cases',
+  'Chunk 5/5: Safe Basic Commands (Authorized Lab Environments Only)'
 ];
 
 class GeminiService {
@@ -346,13 +346,15 @@ class GeminiService {
         'Expected structure:',
         'Use exactly these H2 headings in this order:',
         '1) ## Chunk 1/5: Concept Summary',
-        '2) ## Chunk 2/5: Why It Matters',
-        '3) ## Chunk 3/5: Practical Walkthrough',
-        '4) ## Chunk 4/5: Hands-On Checks',
-        '5) ## Chunk 5/5: Validation and Safety Notes',
+        '2) ## Chunk 2/5: Foundational Basics',
+        '3) ## Chunk 3/5: Core Technical Breakdown',
+        '4) ## Chunk 4/5: Defensive Use Cases',
+        '5) ## Chunk 5/5: Safe Basic Commands (Authorized Lab Environments Only)',
         'Chunk requirements:',
         '- Keep all sections tightly aligned to the user concept.',
-        '- Chunk 3 and Chunk 4 should focus on practical workflow and verification checks.',
+        '- Chunk 3 should break down technical mechanics and likely weaknesses.',
+        '- Chunk 4 should focus on defender-side checks, detections, and hardening actions.',
+        '- Chunk 5 should provide authorized-lab-safe commands/checks with brief usage context.',
         '- Include at least 2 fenced code blocks when commands/snippets are relevant.',
         '- If the concept is not command-heavy, provide actionable checklists instead of generic command dumps.',
         '- Keep all examples non-destructive and authorized-lab safe.',
@@ -460,7 +462,12 @@ class GeminiService {
         '- Keep sections directly relevant to the requested concept.',
         '- Include at least 2 practical examples (commands, checks, or workflow steps).',
         '- Chunk 1 should provide meaningful concept depth (not one short paragraph).',
-        '- Chunk 3 and Chunk 4 should include actionable practice steps and verification checks.',
+        '- Chunk 3 should include technical mechanics and protocol/workflow specifics.',
+        '- Chunk 4 should include defensive checks, detection signals, and validation steps.',
+        '- Chunk 5 should include authorized-lab-safe commands/checks or practical checklist items.',
+        '- Use one list style per sequence: numbered steps ("1. 2. 3.") or "-" bullets, never mixed.',
+        '- Never produce malformed markers such as "- 1." or "• 1.".',
+        '- Prefer compact step formatting like: "1. **Step Name:** action detail".',
         '- Include at least 2 fenced code blocks when commands/snippets are relevant.',
         '- If commands are not relevant, provide concrete checklist-style actions instead.',
         '- Keep all guidance authorized-lab only and avoid exploit payloads or real-target instructions.'
@@ -1105,16 +1112,19 @@ class GeminiService {
     }
 
     const conceptBody = getSectionBody('Chunk 1/5: Concept Summary');
-    const relevanceBody = getSectionBody('Chunk 2/5: Why It Matters');
-    const walkthroughBody = getSectionBody('Chunk 3/5: Practical Walkthrough');
-    const checksBody = getSectionBody('Chunk 4/5: Hands-On Checks');
+    const basicsBody = getSectionBody('Chunk 2/5: Foundational Basics');
+    const technicalBody = getSectionBody('Chunk 3/5: Core Technical Breakdown');
+    const defensiveBody = getSectionBody('Chunk 4/5: Defensive Use Cases');
+    const commandsBody = getSectionBody('Chunk 5/5: Safe Basic Commands (Authorized Lab Environments Only)');
     const totalWordCount = text.split(/\s+/).filter(Boolean).length;
     const conceptWordCount = conceptBody.split(/\s+/).filter(Boolean).length;
-    const relevanceWordCount = relevanceBody.split(/\s+/).filter(Boolean).length;
-    const walkthroughWordCount = walkthroughBody.split(/\s+/).filter(Boolean).length;
-    const checksWordCount = checksBody.split(/\s+/).filter(Boolean).length;
-    const walkthroughActionLines = this.countMatches(walkthroughBody, /(?:^|\n)\s*(?:-|\d+\.)\s+\S+/g);
-    const checksActionLines = this.countMatches(checksBody, /(?:^|\n)\s*(?:-|\d+\.)\s+\S+/g);
+    const basicsWordCount = basicsBody.split(/\s+/).filter(Boolean).length;
+    const technicalWordCount = technicalBody.split(/\s+/).filter(Boolean).length;
+    const defensiveWordCount = defensiveBody.split(/\s+/).filter(Boolean).length;
+    const commandsWordCount = commandsBody.split(/\s+/).filter(Boolean).length;
+    const technicalActionLines = this.countMatches(technicalBody, /(?:^|\n)\s*(?:-|\d+\.)\s+\S+/g);
+    const defensiveActionLines = this.countMatches(defensiveBody, /(?:^|\n)\s*(?:-|\d+\.)\s+\S+/g);
+    const commandsActionLines = this.countMatches(commandsBody, /(?:^|\n)\s*(?:-|\d+\.)\s+\S+/g);
     const containsPracticalAction = /\b(run|check|verify|inspect|collect|review|test|observe|configure|validate)\b/i.test(text);
 
     const codeBlockCount = this.countMatches(text, /```(?:bash|sh|shell|zsh)?\n[\s\S]*?```/g);
@@ -1122,23 +1132,29 @@ class GeminiService {
       issues.push('Explain response should include at least 2 fenced code blocks when practical commands are discussed.');
     }
 
-    if (walkthroughBody && !/```/.test(walkthroughBody) && walkthroughActionLines < 2) {
-      issues.push('Chunk 3/5 should include practical step-by-step actions (code block or at least 2 actionable bullets).');
+    if (technicalBody && !/```/.test(technicalBody) && technicalActionLines < 2) {
+      issues.push('Chunk 3/5 should include concrete technical mechanics (code block or at least 2 actionable bullets).');
     }
-    if (checksBody && !/```/.test(checksBody) && checksActionLines < 2) {
-      issues.push('Chunk 4/5 should include concrete verification checks (code block or at least 2 actionable bullets).');
+    if (defensiveBody && !/```/.test(defensiveBody) && defensiveActionLines < 2) {
+      issues.push('Chunk 4/5 should include defensive checks/detections (code block or at least 2 actionable bullets).');
+    }
+    if (commandsBody && !/```/.test(commandsBody) && commandsActionLines < 2) {
+      issues.push('Chunk 5/5 should include safe commands or practical checklist actions.');
     }
     if (conceptBody && conceptWordCount < 45) {
       issues.push(`Chunk 1/5 is too brief (${conceptWordCount} words, need at least 45).`);
     }
-    if (relevanceBody && relevanceWordCount < 35) {
-      issues.push(`Chunk 2/5 is too brief (${relevanceWordCount} words, need at least 35).`);
+    if (basicsBody && basicsWordCount < 35) {
+      issues.push(`Chunk 2/5 is too brief (${basicsWordCount} words, need at least 35).`);
     }
-    if (walkthroughBody && walkthroughWordCount < 35) {
-      issues.push(`Chunk 3/5 is too brief (${walkthroughWordCount} words, need at least 35).`);
+    if (technicalBody && technicalWordCount < 35) {
+      issues.push(`Chunk 3/5 is too brief (${technicalWordCount} words, need at least 35).`);
     }
-    if (checksBody && checksWordCount < 30) {
-      issues.push(`Chunk 4/5 is too brief (${checksWordCount} words, need at least 30).`);
+    if (defensiveBody && defensiveWordCount < 30) {
+      issues.push(`Chunk 4/5 is too brief (${defensiveWordCount} words, need at least 30).`);
+    }
+    if (commandsBody && commandsWordCount < 30) {
+      issues.push(`Chunk 5/5 is too brief (${commandsWordCount} words, need at least 30).`);
     }
 
     if (totalWordCount < 180) {
@@ -1315,8 +1331,10 @@ class GeminiService {
         '- Include at least 2 practical examples (commands, checks, or concrete steps).',
         '- Include at least 2 fenced code blocks when commands/snippets are relevant.',
         '- Chunk 1 must include meaningful concept depth (at least ~45 words).',
-        '- Chunk 2 must clearly explain why the concept matters in real workflows.',
-        '- Chunk 3 and Chunk 4 must contain actionable practice and verification steps.',
+        '- Chunk 2 must define key terms/protocols/components for foundational understanding.',
+        '- Chunk 3 must explain technical mechanics and common weaknesses.',
+        '- Chunk 4 must focus on defensive checks, detection logic, and mitigation.',
+        '- Chunk 5 must provide safe lab commands/checks with brief execution intent.',
         '- Keep the response concise and directly actionable.'
       ]
       : [];

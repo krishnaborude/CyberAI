@@ -2,6 +2,7 @@
 const { sanitizeUserInput, hasPromptInjection, validateUserInput } = require('../utils/inputGuard');
 const { smartSplitMessage } = require('../utils/smartSplitMessage');
 const { sendChunkedResponse } = require('../utils/discordResponse');
+const { MessageFlags } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -33,14 +34,14 @@ module.exports = {
 
     const validation = validateUserInput(focus, { required: false });
     if (!validation.valid) {
-      await ctx.interaction.reply({ content: validation.reason, ephemeral: true });
+      await ctx.interaction.reply({ content: validation.reason, flags: MessageFlags.Ephemeral });
       return;
     }
 
     if (hasPromptInjection(focus)) {
       await ctx.interaction.reply({
         content: 'Unsafe input pattern detected. Please provide a normal news topic.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -50,7 +51,7 @@ module.exports = {
       const retryAfterSec = Math.ceil(rate.retryAfterMs / 1000);
       await ctx.interaction.reply({
         content: `Rate limit reached. Please wait ${retryAfterSec}s before sending another request.`,
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }

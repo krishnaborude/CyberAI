@@ -1,5 +1,5 @@
 const path = require('node:path');
-const { Client, Events, GatewayIntentBits } = require('discord.js');
+const { Client, Events, GatewayIntentBits, MessageFlags } = require('discord.js');
 const config = require('./config/env');
 const logger = require('./utils/logger');
 const RateLimiter = require('./utils/rateLimiter');
@@ -70,7 +70,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (!command) {
     await interaction.reply({
       content: 'Command not found. Please re-register slash commands.',
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
     return;
   }

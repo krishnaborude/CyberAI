@@ -1,3 +1,4 @@
+const { MessageFlags } = require('discord.js');
 const {
   sanitizeUserInput,
   hasPromptInjection,
@@ -7,6 +8,14 @@ const {
 const { smartSplitMessage } = require('./smartSplitMessage');
 const { sendChunkedResponse } = require('./discordResponse');
 const { formatResponseByCommand } = require('./formatResponse');
+
+const EXPLAIN_CHUNK_TITLES = {
+  1: 'Concept Summary',
+  2: 'Foundational Basics',
+  3: 'Core Technical Breakdown',
+  4: 'Defensive Use Cases',
+  5: 'Safe Basic Commands (Authorized Lab Environments Only)'
+};
 
 function isGeminiRateLimited(error) {
   const message = error?.message || String(error);
@@ -104,13 +113,7 @@ function buildExplainSectionChunks(text) {
     if (!seen.has(i)) return null;
   }
 
-  const defaultTitles = {
-    1: 'Concept Summary',
-    2: 'Why It Matters',
-    3: 'Practical Walkthrough',
-    4: 'Hands-On Checks',
-    5: 'Validation and Safety Notes'
-  };
+  const defaultTitles = EXPLAIN_CHUNK_TITLES;
 
   const sectionByNumber = new Map();
   for (let i = 0; i < deduped.length; i += 1) {
@@ -147,6 +150,62 @@ function stripExplainChunkHeadings(text) {
     .trim();
 }
 
+function extractExplainChunkHeadingMeta(text) {
+  const input = typeof text === 'string' ? text : '';
+  const match = input.match(/^\s*(?:#{1,6}\s*)?Chunk\s*([1-5])\s*\/\s*5(?:\s*:\s*([^\n]*))?/i);
+  if (!match) return { number: null, title: '' };
+
+  const number = Number.parseInt(match[1], 10);
+  const title = String(match[2] || '').trim() || EXPLAIN_CHUNK_TITLES[number] || '';
+  return { number, title };
+}
+
+function formatExplainChunkMessage({ index, total, title, body, userInputLine }) {
+  const chunkIndex = Number.parseInt(index, 10) || 0;
+  const chunkTotal = Number.parseInt(total, 10) || 5;
+  const safeTitle = typeof title === 'string' ? title.trim() : '';
+  let safeBody = typeof body === 'string' ? body.trim() : '';
+
+  if (safeTitle && safeBody) {
+    const lowerTitle = safeTitle.toLowerCase();
+    const bodyLines = safeBody.split('\n');
+    if ((bodyLines[0] || '').trim().toLowerCase() === lowerTitle) {
+      safeBody = bodyLines.slice(1).join('\n').trim();
+    }
+  }
+
+  const lines = [`\u{1F4D8} **CyberAI Response (${chunkIndex + 1}/${chunkTotal})**`, ''];
+  if (chunkIndex === 0 && userInputLine) {
+    lines.push(`> ${userInputLine}`, '');
+  }
+  if (safeTitle) {
+    lines.push(`## ${safeTitle}`, '');
+  }
+  if (safeBody) {
+    lines.push(safeBody);
+  }
+
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function buildExplainChunkMessages({ sections, userInputLine }) {
+  const list = Array.isArray(sections) ? sections : [];
+  const total = list.length || 5;
+
+  return list.map((section, index) => {
+    const { number, title } = extractExplainChunkHeadingMeta(section);
+    const defaultTitle = EXPLAIN_CHUNK_TITLES[index + 1] || '';
+    const cleanSection = stripExplainChunkHeadings(section);
+    return formatExplainChunkMessage({
+      index,
+      total,
+      title: title || EXPLAIN_CHUNK_TITLES[number] || defaultTitle,
+      body: cleanSection,
+      userInputLine
+    });
+  });
+}
+
 async function runAICommand({
   interaction,
   services,
@@ -166,7 +225,7 @@ async function runAICommand({
 
   const validation = validateUserInput(sanitizedInput, { required });
   if (!validation.valid) {
-    await interaction.reply({ content: validation.reason, ephemeral: true });
+    await interaction.reply({ content: validation.reason, flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -177,7 +236,7 @@ async function runAICommand({
         'Share a cybersecurity concept with `/explain`.',
         'Examples: `XSS`, `SQL injection`, `SIEM alert triage`.'
       ].join('\n'),
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -185,7 +244,7 @@ async function runAICommand({
   if (hasPromptInjection(sanitizedInput)) {
     await interaction.reply({
       content: 'Your input appears to include unsafe instruction patterns. Please rephrase as a direct cybersecurity learning question.',
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -193,7 +252,7 @@ async function runAICommand({
   if (requireAuthorizedScope && !hasAuthorizedScopeEvidence(sanitizedInput)) {
     await interaction.reply({
       content: 'For this command, include explicit authorized scope (e.g., lab, CTF, or approved internal test with permission).',
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -203,7 +262,7 @@ async function runAICommand({
     const retryAfterSec = Math.ceil(rate.retryAfterMs / 1000);
     await interaction.reply({
       content: `Rate limit reached. Please wait ${retryAfterSec}s before sending another request.`,
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
     return;
   }
@@ -241,10 +300,19 @@ async function runAICommand({
   aiResponse = formatResponseByCommand(command, aiResponse);
 
   const userInputLine = sanitizedInput && command !== 'studyplan'
-    ? `**User Input:** ${sanitizedInput}`
+    ? (
+      command === 'explain'
+        ? `**User Input:** \`/explain concept:${sanitizedInput}\``
+        : `**User Input:** ${sanitizedInput}`
+    )
     : '';
 
-  const finalResponse = [prependText, userInputLine, aiResponse, appendText]
+  const finalResponse = [
+    prependText,
+    command === 'explain' ? '' : userInputLine,
+    aiResponse,
+    appendText
+  ]
     .map((part) => (typeof part === 'string' ? part.trim() : ''))
     .filter(Boolean)
     .join('\n\n');
@@ -253,26 +321,38 @@ async function runAICommand({
     ? buildExplainSectionChunks(finalResponse)
     : null;
 
-  const chunks = Array.isArray(explainSections) && explainSections.length === 5
-    ? explainSections.map((section, index) => {
-      const cleanSection = stripExplainChunkHeadings(section);
-      const withInput = index === 0 && userInputLine
-        ? `${userInputLine}\n\n${cleanSection}`
-        : cleanSection;
-      return `**\u{1F4D8} CyberCortex Response (${index + 1}/5)**\n\n${withInput}`;
-    })
-    : (() => {
-      const explainSafeResponse = command === 'explain'
-        ? stripExplainChunkHeadings(finalResponse)
-        : finalResponse;
-      const minChunks = command === 'explain'
-        ? 5
-        : (explainSafeResponse.length > 1700 ? 2 : 1);
-      const maxChunks = command === 'studyplan' || command === 'quiz'
-        ? 5
-        : (command === 'explain' ? 5 : 3);
-      return smartSplitMessage(explainSafeResponse, { minChunks, maxChunks });
-    })();
+  let chunks;
+  if (Array.isArray(explainSections) && explainSections.length === 5) {
+    chunks = buildExplainChunkMessages({
+      sections: explainSections,
+      userInputLine
+    });
+  } else {
+    const explainSafeResponse = command === 'explain'
+      ? stripExplainChunkHeadings(finalResponse)
+      : finalResponse;
+    const minChunks = command === 'explain'
+      ? 5
+      : (explainSafeResponse.length > 1700 ? 2 : 1);
+    const maxChunks = command === 'studyplan' || command === 'quiz'
+      ? 5
+      : (command === 'explain' ? 5 : 3);
+    const splitChunks = smartSplitMessage(explainSafeResponse, {
+      minChunks,
+      maxChunks,
+      addPageHeader: command !== 'explain'
+    });
+
+    chunks = command === 'explain'
+      ? splitChunks.map((chunk, index) => formatExplainChunkMessage({
+        index,
+        total: splitChunks.length,
+        title: EXPLAIN_CHUNK_TITLES[index + 1] || '',
+        body: chunk,
+        userInputLine
+      }))
+      : splitChunks;
+  }
   await sendChunkedResponse(interaction, chunks);
 
   logger.info('Command completed', {

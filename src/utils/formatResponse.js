@@ -531,16 +531,39 @@ function formatStudyPlanMarkdown(input) {
   return restorePlaceholders(text, placeholders);
 }
 
+function normalizeExplainListFormatting(input) {
+  let text = typeof input === 'string' ? input : '';
+  if (!text.trim()) return text;
+
+  // Normalize alternate bullet glyphs to markdown dash bullets.
+  text = text.replace(/(^|\n)\s*[•●]\s+/g, '$1- ');
+
+  // Repair malformed mixed markers like "- 1." or "• 1." -> "1."
+  text = text.replace(/(^|\n)\s*(?:-|\*|[•●])\s*(\d+)\.\s*/g, '$1$2. ');
+
+  // Promote bare section labels inside chunks into small headings for readability.
+  text = text.replace(/(^|\n)\s*-\s*([A-Z][A-Za-z0-9/&() \-]{3,90}):\s*$/g, '$1### $2');
+
+  // Improve numbered step readability: "1. Name:" -> "1. **Name:**"
+  text = text.replace(/(^|\n)(\d+)\.\s*([A-Za-z][^:\n]{2,90}):\s*/g, '$1$2. **$3:** ');
+
+  // Ensure list/header markdown consistency.
+  text = normalizeDiscordListAndHeadingMarkdown(text);
+  text = text.replace(/([^\n])\n(###\s+)/g, '$1\n\n$2');
+  text = text.replace(/\n{3,}/g, '\n\n').trim();
+  return text;
+}
+
 function formatExplainMarkdown(input) {
   const raw = typeof input === 'string' ? input : '';
   if (!raw.trim()) return raw;
 
   const expectedTitles = {
     1: 'Concept Summary',
-    2: 'Why It Matters',
-    3: 'Practical Walkthrough',
-    4: 'Hands-On Checks',
-    5: 'Validation and Safety Notes'
+    2: 'Foundational Basics',
+    3: 'Core Technical Breakdown',
+    4: 'Defensive Use Cases',
+    5: 'Safe Basic Commands (Authorized Lab Environments Only)'
   };
 
   const { protectedText, placeholders } = protectCodeBlocks(raw.replace(/\r\n/g, '\n'));
@@ -561,6 +584,7 @@ function formatExplainMarkdown(input) {
 
   // Ensure a blank line before headings for readability.
   text = text.replace(/([^\n])\n(##\s+)/g, '$1\n\n$2');
+  text = normalizeExplainListFormatting(text);
 
   // Collapse excessive blank lines.
   text = text.replace(/\n{3,}/g, '\n\n').trim();
