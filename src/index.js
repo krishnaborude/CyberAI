@@ -34,7 +34,7 @@ client.services = {
 client.rateLimiter = new RateLimiter(config.rateLimit);
 
 client.once(Events.ClientReady, (readyClient) => {
-  logger.info('CyberAI bot is online', {
+  logger.info('CyberCortex bot is online', {
     user: readyClient.user.tag,
     commandsLoaded: client.commands.size,
     env: config.nodeEnv

@@ -1,5 +1,72 @@
 const CODE_BLOCK_REGEX = /```[\s\S]*?```/g;
 
+function normalizeFencedCodeBlocks(input) {
+  if (typeof input !== 'string' || !input.includes('```')) return input;
+
+  // Ensure fences start on a new line when model output appends them inline.
+  let text = input.replace(/([^\n])```/g, '$1\n```');
+  const lines = text.split('\n');
+  const output = [];
+  let inFence = false;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+
+    if (!trimmed.startsWith('```')) {
+      output.push(rawLine);
+      continue;
+    }
+
+    // Normalize indentation/spacing around fence lines for Discord markdown.
+    const afterFence = trimmed.slice(3).trim();
+
+    if (!inFence) {
+      // Opening fence.
+      if (!afterFence) {
+        output.push('```');
+      } else if (/^[a-z0-9_+-]+$/i.test(afterFence)) {
+        output.push(`\`\`\`${afterFence}`);
+      } else {
+        // If content was appended on the same line as opening fence, move it below.
+        output.push('```');
+        output.push(afterFence);
+      }
+      inFence = true;
+      continue;
+    }
+
+    // Closing fence.
+    output.push('```');
+    inFence = false;
+    if (afterFence) {
+      output.push(afterFence);
+    }
+  }
+
+  const normalizedLines = [];
+  let previousWasClosingFence = false;
+  for (const line of output) {
+    if (/^[ \t]+$/.test(line)) {
+      normalizedLines.push('');
+      previousWasClosingFence = false;
+      continue;
+    }
+
+    const trimmed = line.trim();
+    if (previousWasClosingFence && /^[ \t]{4,}\S/.test(line)) {
+      normalizedLines.push(line.trimStart());
+    } else {
+      normalizedLines.push(line);
+    }
+    previousWasClosingFence = trimmed === '```';
+  }
+
+  text = normalizedLines.join('\n');
+
+  // Ensure prose doesn't continue on the same line right after a closing fence.
+  return text.replace(/```([ \t]+)(?=\S)/g, '```\n');
+}
+
 function restorePlaceholders(input, placeholders) {
   let text = input;
   for (const [token, value] of placeholders.entries()) {
@@ -188,11 +255,71 @@ function trimVerboseRefusalPreface(text) {
   return trimmed.replace(/^I\s+can,\s+however,\s*/i, '').trim();
 }
 
+function normalizeDiscordListAndHeadingMarkdown(input) {
+  if (typeof input !== 'string' || !input.trim()) return input;
+
+  const sourceLines = input.split('\n');
+  const normalized = sourceLines.map((line) => {
+    let value = String(line || '').replace(/\t/g, '  ').trimEnd();
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+
+    // Normalize common bullet markers and unknown symbols before numbered items.
+    value = value.replace(/^\s*(?:\u2022|[-*])\s+/, '- ');
+    value = value.replace(/^\s*[^\w\s#`-]\s*(\d+[.)]?)\s*$/, '$1.');
+    value = value.replace(/^\s*[^\w\s#`-]\s*(\d+[.)])\s+/, '$1 ');
+
+    // Repair malformed section labels like "Manual Testing Steps:*".
+    value = value.replace(/^\s*([^*\n][^:\n]{2,120}):\*\s*$/i, '**$1:**');
+    value = value.replace(/^\s*\*\*([^*\n]{2,120}):\*\s*$/i, '**$1:**');
+    value = value.replace(/^(\s*\d+[.)]\s+)([^*\n:]{2,120}):\*\*(\s+)/i, '$1**$2:**$3');
+
+    // Normalize numbered markers that appear as isolated lines.
+    value = value.replace(/^\s*[-*]\s*(\d+)[.)]?\s*$/, '$1.');
+    value = value.replace(/^\s*(\d+)\)\s*$/, '$1.');
+    value = value.replace(/^\s*(\d+)\.(\S)/, '$1. $2');
+    value = value.replace(/^\s*(\d+)\.\s*\.\s*$/, '$1.');
+
+    return value;
+  });
+
+  const output = [];
+  for (let i = 0; i < normalized.length; i += 1) {
+    const current = normalized[i];
+    const currentTrimmed = current.trim();
+
+    if (/^\d+\.$/.test(currentTrimmed) && i + 1 < normalized.length) {
+      const next = normalized[i + 1] || '';
+      const nextTrimmed = next.trim();
+      const nextStartsNewBlock = (
+        !nextTrimmed
+        || /^[-*]\s+/.test(nextTrimmed)
+        || /^\d+[.)]\s+/.test(nextTrimmed)
+        || /^#{1,6}\s+/.test(nextTrimmed)
+        || /^`{3}/.test(nextTrimmed)
+      );
+
+      if (!nextStartsNewBlock) {
+        output.push(currentTrimmed + ' ' + nextTrimmed);
+        i += 1;
+        continue;
+      }
+    }
+
+    output.push(current);
+  }
+
+  let normalizedText = output.join('\n');
+  normalizedText = normalizedText.replace(/^(\s*\d+[.)]\s+)([^*\n:]{2,120}):\*\*(\s+)/gmi, '$1**$2:**$3');
+  return normalizedText;
+}
+
 function formatGenericMarkdown(input, { preserveTables = false } = {}) {
   const raw = typeof input === 'string' ? input : '';
   if (!raw.trim()) return raw;
 
-  const { protectedText, placeholders } = protectCodeBlocks(raw.replace(/\r\n/g, '\n'));
+  const normalizedRaw = normalizeFencedCodeBlocks(raw.replace(/\r\n/g, '\n'));
+  const { protectedText, placeholders } = protectCodeBlocks(normalizedRaw);
   let text = trimVerboseRefusalPreface(protectedText.trim());
 
   // Drop leading "Disclaimer:" blocks (they're repetitive in Discord). Keep safety by other means.
@@ -247,8 +374,10 @@ function formatGenericMarkdown(input, { preserveTables = false } = {}) {
 
   // Normalize common bullet markers at line start.
   text = text.replace(/(^|\n)\s*\*\s+(?=\S)/g, '$1- ');
-  text = text.replace(/(^|\n)\s*•\s+(?=\S)/g, '$1- ');
+  text = text.replace(/(^|\n)\s*\u2022\s+(?=\S)/g, '$1- ');
 
+  // Repair broken list/heading markdown patterns for cleaner Discord rendering.
+  text = normalizeDiscordListAndHeadingMarkdown(text);
   // Ensure a blank line before headings.
   text = text.replace(/([^\n])\n(#{1,6}\s+)/g, '$1\n\n$2');
 
@@ -408,9 +537,9 @@ function formatExplainMarkdown(input) {
 
   const expectedTitles = {
     1: 'Concept Summary',
-    2: '',
-    3: 'Discovery Commands',
-    4: 'Enumeration Commands',
+    2: 'Why It Matters',
+    3: 'Practical Walkthrough',
+    4: 'Hands-On Checks',
     5: 'Validation and Safety Notes'
   };
 
@@ -423,9 +552,7 @@ function formatExplainMarkdown(input) {
     (match, prefix, numberRaw, titleRaw) => {
       const number = Number.parseInt(numberRaw, 10);
       const fallbackTitle = expectedTitles[number] || '';
-      const title = number === 2
-        ? ''
-        : (String(titleRaw || '').trim() || fallbackTitle);
+      const title = String(titleRaw || '').trim() || fallbackTitle;
       return title
         ? `${prefix}## Chunk ${number}/5: ${title}`
         : `${prefix}## Chunk ${number}/5`;

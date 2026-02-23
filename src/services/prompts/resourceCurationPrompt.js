@@ -6,7 +6,7 @@ function buildResourceCurationPrompt({
   ctx
 }) {
   return [
-    'You are CyberAI, a cybersecurity learning curator.',
+    'You are CyberCortex, a cybersecurity learning curator.',
     '',
     'Task: select the best cybersecurity resources from provided search results.',
     'You MUST only use the provided links and must not invent names, links, or platforms.',

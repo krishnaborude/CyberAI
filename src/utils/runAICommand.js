@@ -13,6 +13,66 @@ function isGeminiRateLimited(error) {
   return /GEMINI_RATE_LIMITED|429|resource exhausted|too many requests|rate limit/i.test(message);
 }
 
+function isLowSignalExplainInput(input) {
+  const normalized = typeof input === 'string' ? input.trim().toLowerCase() : '';
+  if (!normalized) return true;
+
+  const cleaned = normalized.replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return true;
+
+  const commonShortInputs = new Set([
+    'hi',
+    'hello',
+    'hey',
+    'yo',
+    'sup',
+    'ok',
+    'okay',
+    'thanks',
+    'thank you',
+    'test',
+    'ping'
+  ]);
+  if (commonShortInputs.has(cleaned)) return true;
+
+  const cybersecurityKeywords = [
+    'xss',
+    'csrf',
+    'sqli',
+    'sql',
+    'siem',
+    'soc',
+    'cve',
+    'osint',
+    'nmap',
+    'burp',
+    'metasploit',
+    'phishing',
+    'malware',
+    'firewall',
+    'pentest',
+    'recon',
+    'enumeration',
+    'vulnerability',
+    'exploit',
+    'mitre',
+    'owasp'
+  ];
+
+  const tokens = cleaned.split(' ').filter(Boolean);
+  const hasCyberKeyword = tokens.some((token) => cybersecurityKeywords.includes(token));
+  if (hasCyberKeyword) return false;
+
+  if (tokens.length === 1) {
+    return tokens[0].length <= 2 || commonShortInputs.has(tokens[0]);
+  }
+
+  const conversationalPattern = /^(how are you|what is up|what's up|who are you|good morning|good afternoon|good evening|thank you)$/i;
+  if (conversationalPattern.test(cleaned)) return true;
+
+  return false;
+}
+
 function buildExplainSectionChunks(text) {
   const input = typeof text === 'string' ? text.replace(/\r\n/g, '\n').trim() : '';
   if (!input) return null;
@@ -46,9 +106,9 @@ function buildExplainSectionChunks(text) {
 
   const defaultTitles = {
     1: 'Concept Summary',
-    2: '',
-    3: 'Discovery Commands',
-    4: 'Enumeration Commands',
+    2: 'Why It Matters',
+    3: 'Practical Walkthrough',
+    4: 'Hands-On Checks',
     5: 'Validation and Safety Notes'
   };
 
@@ -61,18 +121,10 @@ function buildExplainSectionChunks(text) {
       /^(?:#{1,6}\s*)?Chunk\s*([1-5])\s*\/\s*5(?:\s*:\s*([^\n]*))?/i,
       (lineMatch, numberRaw, titleRaw) => {
         const number = Number.parseInt(numberRaw, 10);
-        const title = number === 2
-          ? ''
-          : (String(titleRaw || '').trim() || defaultTitles[number] || '');
+        const title = String(titleRaw || '').trim() || defaultTitles[number] || '';
         return title ? `## Chunk ${number}/5: ${title}` : `## Chunk ${number}/5`;
       }
     );
-
-    if (deduped[i].number === 2) {
-      section = section
-        .replace(/^##\s*Chunk\s*2\s*\/\s*5(?:\s*:\s*[^\n]*)?\s*\n*/i, '')
-        .trim();
-    }
 
     sectionByNumber.set(deduped[i].number, section);
   }
@@ -115,6 +167,18 @@ async function runAICommand({
   const validation = validateUserInput(sanitizedInput, { required });
   if (!validation.valid) {
     await interaction.reply({ content: validation.reason, ephemeral: true });
+    return;
+  }
+
+  if (command === 'explain' && isLowSignalExplainInput(sanitizedInput)) {
+    await interaction.reply({
+      content: [
+        'Hello 👋 I\'m CyberCortex, your ethical cybersecurity assistant. What would you like to explore today?',
+        'Share a cybersecurity concept with `/explain`.',
+        'Examples: `XSS`, `SQL injection`, `SIEM alert triage`.'
+      ].join('\n'),
+      ephemeral: true
+    });
     return;
   }
 
@@ -195,7 +259,7 @@ async function runAICommand({
       const withInput = index === 0 && userInputLine
         ? `${userInputLine}\n\n${cleanSection}`
         : cleanSection;
-      return `**\u{1F4D8} CyberAI Response (${index + 1}/5)**\n\n${withInput}`;
+      return `**\u{1F4D8} CyberCortex Response (${index + 1}/5)**\n\n${withInput}`;
     })
     : (() => {
       const explainSafeResponse = command === 'explain'

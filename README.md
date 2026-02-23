@@ -1,18 +1,18 @@
-![CyberAI - Ethical Cybersecurity Discord Bot](./assets/logo.png)
+![CyberCortex - Ethical Cybersecurity Discord Bot](./assets/logo.png)
 
-# CyberAI - Ethical Offensive Security Learning Assistant
+# CyberCortex - Ethical Offensive Security Learning Assistant
 
 ![Node.js](https://img.shields.io/badge/node-20%2B-green)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Status](https://img.shields.io/badge/status-active-success)
 ![Security](https://img.shields.io/badge/design-secure--by--default-red)
-![Top Language](https://img.shields.io/github/languages/top/krishnaborude/CyberAI?color=yellow)
-![Repo Views](https://komarev.com/ghpvc/?username=krishnaborude&repo=CyberAI&label=repo%20views&color=0e75b6&style=flat)
+![Top Language](https://img.shields.io/github/languages/top/krishnaborude/CyberCortex?color=yellow)
+![Repo Views](https://komarev.com/ghpvc/?username=krishnaborude&repo=CyberCortex&label=repo%20views&color=0e75b6&style=flat)
 
-CyberAI is a Discord bot that helps cybersecurity learners build structured, certification-aligned practice workflows while enforcing authorized-use boundaries.
+CyberCortex is a Discord bot that helps cybersecurity learners build structured, certification-aligned practice workflows while enforcing authorized-use boundaries.
 
 ## Abstract
-CyberAI combines practical learning guidance, search-grounded recommendations, and safety-aware AI orchestration for offensive and defensive security education in authorized environments.
+CyberCortex combines practical learning guidance, search-grounded recommendations, and safety-aware AI orchestration for offensive and defensive security education in authorized environments.
 
 ## Why This Matters
 Many cybersecurity learners struggle with:
@@ -22,7 +22,7 @@ Many cybersecurity learners struggle with:
 - Translating practice into professional reporting habits
 - Staying within ethical and authorized boundaries
 
-CyberAI addresses these challenges by combining structured learning workflows with AI-driven personalization and safety enforcement.
+CyberCortex addresses these challenges by combining structured learning workflows with AI-driven personalization and safety enforcement.
 
 ## Key Differentiators
 - Structured progression workflows (`/studyplan`, `/roadmap`) instead of one-off generic advice
@@ -133,7 +133,7 @@ npm run dev
 Additional tuning vars are available in `src/config/env.js`.
 
 ## Community Impact
-CyberAI is designed to help:
+CyberCortex is designed to help:
 - New learners build structured offensive methodology
 - Intermediate students prepare for practical certifications
 - Community members run exam-style simulation workflows in labs
@@ -142,11 +142,11 @@ CyberAI is designed to help:
 The goal is not automation, but disciplined security thinking.
 
 ## Intended Use
-CyberAI is for authorized learning environments:
+CyberCortex is for authorized learning environments:
 - Personal labs
 - CTF platforms
 - Internal approved simulation exercises
 
 It is not intended for unauthorized real-world exploitation guidance.
 
-CyberAI demonstrates that AI can enhance cybersecurity education while maintaining safety, structure, and responsibility. It is built not as an exploit generator, but as a structured learning assistant for ethical practitioners.
+CyberCortex demonstrates that AI can enhance cybersecurity education while maintaining safety, structure, and responsibility. It is built not as an exploit generator, but as a structured learning assistant for ethical practitioners.

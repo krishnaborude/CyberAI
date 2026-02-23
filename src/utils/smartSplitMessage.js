@@ -1,4 +1,4 @@
-﻿const CODE_BLOCK_REGEX = /```[\s\S]*?```/g;
+const CODE_BLOCK_REGEX = /```[\s\S]*?```/g;
 const SPLIT_TRIGGER = 1900;
 const TARGET_CHUNK_SIZE = 1600;
 const HARD_MAX = 1900;
@@ -389,7 +389,7 @@ function smartSplitMessage(input, options = {}) {
   if (!addPageHeader) return finalized;
 
   return finalized.map((chunk, index) => {
-    const page = `**\u{1F4D8} CyberAI Response (${index + 1}/${finalized.length})**`;
+    const page = `**\u{1F4D8} CyberCortex Response (${index + 1}/${finalized.length})**`;
     return `${page}\n\n${chunk}`;
   });
 }

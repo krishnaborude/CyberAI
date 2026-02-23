@@ -1,7 +1,7 @@
-# CyberAI Architecture
+# CyberCortex Architecture
 
 ## Purpose
-CyberAI is built as a Discord-native cybersecurity learning assistant that balances three goals:
+CyberCortex is built as a Discord-native cybersecurity learning assistant that balances three goals:
 - Practical value for learners preparing in authorized environments
 - Consistent structure across outputs (roadmaps, study plans, quizzes, red-team guidance)
 - Safety controls for dual-use cybersecurity topics
@@ -62,7 +62,7 @@ Discord User
 - Response length/chunk management for Discord limits
 
 ## Extensibility
-CyberAI is modular by command and service. New features typically require:
+CyberCortex is modular by command and service. New features typically require:
 1. Add a command file under `src/commands`.
 2. Add a prompt builder under `src/services/prompts` (if AI-generated).
 3. Extend `geminiService` quality/validation rules (if structured output).

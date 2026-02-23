@@ -19,8 +19,8 @@ const COMMAND_GUIDANCE = {
   news: 'Summarize recent cybersecurity trends and notable incident categories with clear source links and practical implications.'
 };
 
-const CYBERAI_SYSTEM_PROMPT = [
-  'You are CyberAI, an enterprise-grade Offensive Security and Defensive Security Intelligence Assistant.',
+const CYBERCORTEX_SYSTEM_PROMPT = [
+  'You are CyberCortex, an enterprise-grade Offensive Security and Defensive Security Intelligence Assistant.',
   '',
   'Primary Audience:',
   '- Penetration Testers',
@@ -96,7 +96,7 @@ const CYBERAI_SYSTEM_PROMPT = [
 ].join('\n');
 
 const QUALITY_REQUIREMENTS = {
-  explain: { minChars: 1500, maxChars: 5200, minHeadings: 5, minBullets: 12 },
+  explain: { minChars: 450, maxChars: 3600, minHeadings: 5, minBullets: 6 },
   roadmap: { minChars: 750, maxChars: 6200, minHeadings: 6, minBullets: 10 },
   studyplan: { minChars: 1000, maxChars: 6200, minHeadings: 8, minBullets: 14 },
   tools: { minChars: 420, maxChars: 2400, minHeadings: 3, minBullets: 4 },
@@ -135,9 +135,9 @@ const STUDYPLAN_REQUIRED_HEADINGS = [
 
 const EXPLAIN_REQUIRED_HEADINGS = [
   'Chunk 1/5: Concept Summary',
-  'Chunk 2/5',
-  'Chunk 3/5: Discovery Commands',
-  'Chunk 4/5: Enumeration Commands',
+  'Chunk 2/5: Why It Matters',
+  'Chunk 3/5: Practical Walkthrough',
+  'Chunk 4/5: Hands-On Checks',
   'Chunk 5/5: Validation and Safety Notes'
 ];
 
@@ -346,18 +346,16 @@ class GeminiService {
         'Expected structure:',
         'Use exactly these H2 headings in this order:',
         '1) ## Chunk 1/5: Concept Summary',
-        '2) ## Chunk 2/5',
-        '3) ## Chunk 3/5: Discovery Commands',
-        '4) ## Chunk 4/5: Enumeration Commands',
+        '2) ## Chunk 2/5: Why It Matters',
+        '3) ## Chunk 3/5: Practical Walkthrough',
+        '4) ## Chunk 4/5: Hands-On Checks',
         '5) ## Chunk 5/5: Validation and Safety Notes',
         'Chunk requirements:',
-        '- Chunk 2 must include safe target setup (isolated lab + private IP example).',
-        '- Chunk 2 must explicitly include attacker VM, target VM, isolated network mode, and private subnet/IP example.',
-        '- Chunk 2 must not be command-only text.',
-        '- Chunk 3 must include at least 4 practical discovery commands in fenced bash code blocks.',
-        '- Chunk 4 must include at least 4 practical enumeration commands in fenced bash code blocks.',
-        '- Include at least 3 fenced bash code blocks total.',
-        '- Keep all commands non-destructive and reconnaissance-focused.',
+        '- Keep all sections tightly aligned to the user concept.',
+        '- Chunk 3 and Chunk 4 should focus on practical workflow and verification checks.',
+        '- Include at least 2 fenced code blocks when commands/snippets are relevant.',
+        '- If the concept is not command-heavy, provide actionable checklists instead of generic command dumps.',
+        '- Keep all examples non-destructive and authorized-lab safe.',
         '- Keep wording concise and Discord-readable.'
       ].join('\n');
     }
@@ -458,14 +456,13 @@ class GeminiService {
       return [
         'Explain-specific rules (strict):',
         '- Keep exactly 5 sections with the required chunk headings.',
-        '- Keep content substantial: target at least ~250 words overall.',
-        '- Include at least 3 fenced bash code blocks total.',
-        '- In command sections, include practical commands plus a one-line purpose for each command.',
+        '- Keep content substantial: target at least ~180 words overall.',
+        '- Keep sections directly relevant to the requested concept.',
+        '- Include at least 2 practical examples (commands, checks, or workflow steps).',
         '- Chunk 1 should provide meaningful concept depth (not one short paragraph).',
-        '- Chunk 3 must include at least 4 discovery commands.',
-        '- Chunk 4 must include at least 4 enumeration commands.',
-        '- Include safe-target setup guidance (attacker VM, target VM, isolated network mode, private subnet/IP example).',
-        '- Chunk 2 must not be only one command; include clear setup steps and safety context.',
+        '- Chunk 3 and Chunk 4 should include actionable practice steps and verification checks.',
+        '- Include at least 2 fenced code blocks when commands/snippets are relevant.',
+        '- If commands are not relevant, provide concrete checklist-style actions instead.',
         '- Keep all guidance authorized-lab only and avoid exploit payloads or real-target instructions.'
       ].join('\n');
     }
@@ -650,7 +647,7 @@ class GeminiService {
     if (command === 'quiz') {
       const quizQuestions = this.inferQuizQuestionCount(userInput) || 5;
       return [
-        CYBERAI_SYSTEM_PROMPT,
+        CYBERCORTEX_SYSTEM_PROMPT,
         '',
         'Output format requirements (strict):',
         '- Return only the quiz in clean markdown. No extra commentary.',
@@ -675,7 +672,7 @@ class GeminiService {
 
     if (command === 'roadmap') {
       return buildRoadmapPrompt({
-        systemPrompt: CYBERAI_SYSTEM_PROMPT,
+        systemPrompt: CYBERCORTEX_SYSTEM_PROMPT,
         commandGuidance,
         safetyRequirements,
         detailTemplate,
@@ -687,7 +684,7 @@ class GeminiService {
 
     if (command === 'studyplan') {
       return buildStudyPlanPrompt({
-        systemPrompt: CYBERAI_SYSTEM_PROMPT,
+        systemPrompt: CYBERCORTEX_SYSTEM_PROMPT,
         commandGuidance,
         safetyRequirements,
         detailTemplate,
@@ -699,7 +696,7 @@ class GeminiService {
 
     if (command === 'explain') {
       return buildExplainPrompt({
-        systemPrompt: CYBERAI_SYSTEM_PROMPT,
+        systemPrompt: CYBERCORTEX_SYSTEM_PROMPT,
         commandGuidance,
         safetyRequirements,
         detailTemplate,
@@ -710,7 +707,7 @@ class GeminiService {
 
     if (command === 'labs') {
       return buildLabsPrompt({
-        systemPrompt: CYBERAI_SYSTEM_PROMPT,
+        systemPrompt: CYBERCORTEX_SYSTEM_PROMPT,
         commandGuidance,
         safetyRequirements,
         detailTemplate,
@@ -721,7 +718,7 @@ class GeminiService {
 
     if (command === 'news') {
       return buildNewsPrompt({
-        systemPrompt: CYBERAI_SYSTEM_PROMPT,
+        systemPrompt: CYBERCORTEX_SYSTEM_PROMPT,
         commandGuidance,
         safetyRequirements,
         detailTemplate,
@@ -732,7 +729,7 @@ class GeminiService {
 
     if (command === 'redteam') {
       return [
-        CYBERAI_SYSTEM_PROMPT,
+        CYBERCORTEX_SYSTEM_PROMPT,
         '',
         'Output format requirements (strict):',
         '- Return only the final response in clean markdown. No extra commentary.',
@@ -755,7 +752,7 @@ class GeminiService {
 
     if (command === 'redteam') {
       return [
-        CYBERAI_SYSTEM_PROMPT,
+        CYBERCORTEX_SYSTEM_PROMPT,
         '',
         'Output format requirements (strict):',
         '- Return only the final response in clean markdown. No extra commentary.',
@@ -777,7 +774,7 @@ class GeminiService {
     }
 
     return [
-      CYBERAI_SYSTEM_PROMPT,
+      CYBERCORTEX_SYSTEM_PROMPT,
       '',
       'Teaching style requirements:',
       '- Assume the learner is beginner unless they ask for advanced only.',
@@ -1086,7 +1083,7 @@ class GeminiService {
     };
   }
 
-  validateExplainCompleteness(text) {
+  validateExplainCompleteness(text, { userInput = '' } = {}) {
     const issues = [];
     const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const getSectionBody = (title) => {
@@ -1108,72 +1105,64 @@ class GeminiService {
     }
 
     const conceptBody = getSectionBody('Chunk 1/5: Concept Summary');
-    const discoveryBody = getSectionBody('Chunk 3/5: Discovery Commands');
-    const enumerationBody = getSectionBody('Chunk 4/5: Enumeration Commands');
-    const safeTargetBody = getSectionBody('Chunk 2/5');
+    const relevanceBody = getSectionBody('Chunk 2/5: Why It Matters');
+    const walkthroughBody = getSectionBody('Chunk 3/5: Practical Walkthrough');
+    const checksBody = getSectionBody('Chunk 4/5: Hands-On Checks');
     const totalWordCount = text.split(/\s+/).filter(Boolean).length;
     const conceptWordCount = conceptBody.split(/\s+/).filter(Boolean).length;
-    const safeTargetWordCount = safeTargetBody.split(/\s+/).filter(Boolean).length;
-    const safeTargetBullets = this.countMatches(safeTargetBody, /(?:^|\n)\s*(?:-|\d+\.)\s+\S+/g);
-    const commandLineRegex = /(?:^|\n)\s*(?:nmap|nbtscan|smbclient|smbmap|rpcclient|enum4linux(?:-ng)?|netexec|crackmapexec)\b[^\n]*/gmi;
-    const totalCommandLines = this.countMatches(text, commandLineRegex);
-    const discoveryCommandLines = this.countMatches(discoveryBody, commandLineRegex);
-    const enumerationCommandLines = this.countMatches(enumerationBody, commandLineRegex);
+    const relevanceWordCount = relevanceBody.split(/\s+/).filter(Boolean).length;
+    const walkthroughWordCount = walkthroughBody.split(/\s+/).filter(Boolean).length;
+    const checksWordCount = checksBody.split(/\s+/).filter(Boolean).length;
+    const walkthroughActionLines = this.countMatches(walkthroughBody, /(?:^|\n)\s*(?:-|\d+\.)\s+\S+/g);
+    const checksActionLines = this.countMatches(checksBody, /(?:^|\n)\s*(?:-|\d+\.)\s+\S+/g);
+    const containsPracticalAction = /\b(run|check|verify|inspect|collect|review|test|observe|configure|validate)\b/i.test(text);
 
     const codeBlockCount = this.countMatches(text, /```(?:bash|sh|shell|zsh)?\n[\s\S]*?```/g);
-    if (codeBlockCount < 3) {
-      issues.push('Explain response should include at least 3 fenced bash code blocks with practical commands.');
+    if (codeBlockCount < 2 && /\b(command|cli|terminal|script|query)\b/i.test(text)) {
+      issues.push('Explain response should include at least 2 fenced code blocks when practical commands are discussed.');
     }
 
-    if (discoveryBody && !/```/.test(discoveryBody)) {
-      issues.push('Chunk 3/5 should include a fenced code block with discovery commands.');
+    if (walkthroughBody && !/```/.test(walkthroughBody) && walkthroughActionLines < 2) {
+      issues.push('Chunk 3/5 should include practical step-by-step actions (code block or at least 2 actionable bullets).');
     }
-    if (enumerationBody && !/```/.test(enumerationBody)) {
-      issues.push('Chunk 4/5 should include a fenced code block with enumeration commands.');
+    if (checksBody && !/```/.test(checksBody) && checksActionLines < 2) {
+      issues.push('Chunk 4/5 should include concrete verification checks (code block or at least 2 actionable bullets).');
     }
-    if (safeTargetBody && !/\b(lab|ctf|isolated|private|host-only|internal)\b/i.test(safeTargetBody)) {
-      issues.push('Chunk 2/5 should clearly define a safe isolated lab target setup.');
+    if (conceptBody && conceptWordCount < 45) {
+      issues.push(`Chunk 1/5 is too brief (${conceptWordCount} words, need at least 45).`);
     }
-    if (conceptBody && conceptWordCount < 70) {
-      issues.push(`Chunk 1/5 is too brief (${conceptWordCount} words, need at least 70).`);
+    if (relevanceBody && relevanceWordCount < 35) {
+      issues.push(`Chunk 2/5 is too brief (${relevanceWordCount} words, need at least 35).`);
     }
-    if (safeTargetBody && safeTargetWordCount < 80) {
-      issues.push(`Chunk 2/5 is too brief (${safeTargetWordCount} words, need at least 80).`);
+    if (walkthroughBody && walkthroughWordCount < 35) {
+      issues.push(`Chunk 3/5 is too brief (${walkthroughWordCount} words, need at least 35).`);
     }
-    if (safeTargetBody && safeTargetBullets < 3) {
-      issues.push(`Chunk 2/5 should include at least 3 setup bullets (${safeTargetBullets} found).`);
-    }
-    if (safeTargetBody && !/\b(attacker|kali|parrot)\b/i.test(safeTargetBody)) {
-      issues.push('Chunk 2/5 should explicitly mention the attacker VM setup.');
-    }
-    if (safeTargetBody && !/\b(target|windows|server|victim)\b/i.test(safeTargetBody)) {
-      issues.push('Chunk 2/5 should explicitly mention the target VM setup.');
-    }
-    if (safeTargetBody && !/\b(host-only|internal network|isolated network|private network|nat)\b/i.test(safeTargetBody)) {
-      issues.push('Chunk 2/5 should explicitly define isolated network mode.');
-    }
-    if (safeTargetBody && !/\b\d{1,3}(?:\.\d{1,3}){3}(?:\/\d{1,2})?\b/.test(safeTargetBody)) {
-      issues.push('Chunk 2/5 should include a private IP or subnet example.');
-    }
-    if (safeTargetBody && totalCommandLines > 0 && safeTargetWordCount < 40) {
-      issues.push('Chunk 2/5 appears command-only; add setup steps and safety context.');
+    if (checksBody && checksWordCount < 30) {
+      issues.push(`Chunk 4/5 is too brief (${checksWordCount} words, need at least 30).`);
     }
 
-    if (totalWordCount < 250) {
-      issues.push(`Explain response is too brief (${totalWordCount} words, need at least 250).`);
+    if (totalWordCount < 180) {
+      issues.push(`Explain response is too brief (${totalWordCount} words, need at least 180).`);
     }
-    if (totalCommandLines < 8) {
-      issues.push(`Explain response needs more practical commands (${totalCommandLines} found, need at least 8).`);
-    }
-    if (discoveryBody && discoveryCommandLines < 4) {
-      issues.push(`Chunk 3/5 needs more discovery commands (${discoveryCommandLines} found, need at least 4).`);
-    }
-    if (enumerationBody && enumerationCommandLines < 4) {
-      issues.push(`Chunk 4/5 needs more enumeration commands (${enumerationCommandLines} found, need at least 4).`);
+    if (!containsPracticalAction) {
+      issues.push('Explain response should include practical actions/checks, not only conceptual text.');
     }
 
     if (!/\b(authorized|permission|owned|lab)\b/i.test(text)) {
       issues.push('Explain response must include authorized-use safety context.');
+    }
+
+    const normalizedInput = String(userInput || '').toLowerCase();
+    const topicTokens = normalizedInput
+      .split(/[^a-z0-9]+/)
+      .filter((token) => token.length >= 4)
+      .filter((token) => !['what', 'this', 'that', 'with', 'about', 'from', 'into', 'your', 'please', 'explain'].includes(token));
+    if (topicTokens.length > 0) {
+      const responseText = text.toLowerCase();
+      const hasTopicSignal = topicTokens.some((token) => responseText.includes(token));
+      if (!hasTopicSignal) {
+        issues.push('Explain response appears weakly tied to the user topic; include terms from the user request.');
+      }
     }
 
     return {
@@ -1220,7 +1209,9 @@ class GeminiService {
     }
 
     if (command === 'explain') {
-      const explainValidation = this.validateExplainCompleteness(text);
+      const explainValidation = this.validateExplainCompleteness(text, {
+        userInput: context.userInput || ''
+      });
       if (!explainValidation.valid) {
         issues.push(...explainValidation.issues);
       }
@@ -1319,13 +1310,13 @@ class GeminiService {
         'Explain refinement requirements (strict):',
         '- Use exactly these H2 headings in this order:',
         ...EXPLAIN_REQUIRED_HEADINGS.map((title) => `- ## ${title}`),
-        '- Keep response detailed: at least ~250 words total.',
-        '- Include at least 3 fenced bash code blocks total.',
-        '- Chunk 1 must include meaningful concept depth (at least ~70 words).',
-        '- Chunk 2 must include an isolated lab setup with attacker VM, target VM, network mode, and private IP/subnet example.',
-        '- Chunk 2 must include at least 3 setup bullets and cannot be command-only text.',
-        '- Chunk 3 must include at least 4 discovery commands with one-line purpose notes.',
-        '- Chunk 4 must include at least 4 enumeration commands with one-line purpose notes.',
+        '- Keep response detailed: at least ~180 words total.',
+        '- Keep every section tightly aligned to the user-requested concept.',
+        '- Include at least 2 practical examples (commands, checks, or concrete steps).',
+        '- Include at least 2 fenced code blocks when commands/snippets are relevant.',
+        '- Chunk 1 must include meaningful concept depth (at least ~45 words).',
+        '- Chunk 2 must clearly explain why the concept matters in real workflows.',
+        '- Chunk 3 and Chunk 4 must contain actionable practice and verification steps.',
         '- Keep the response concise and directly actionable.'
       ]
       : [];
@@ -1471,6 +1462,7 @@ class GeminiService {
     try {
       const firstDraft = await this.callModel(prompt, { maxOutputTokens: firstPassTokens });
       const firstQuality = this.evaluateQuality(command, firstDraft, {
+        userInput,
         roadmapWeeks: targetRoadmapWeeks,
         studyPlanWeeks: targetStudyPlanWeeks,
         quizQuestions: targetQuizQuestions,
@@ -1508,6 +1500,7 @@ class GeminiService {
 
       const refinedDraft = await this.callModel(refinementPrompt, { maxOutputTokens: refinePassTokens });
       const refinedQuality = this.evaluateQuality(command, refinedDraft, {
+        userInput,
         roadmapWeeks: targetRoadmapWeeks,
         studyPlanWeeks: targetStudyPlanWeeks,
         quizQuestions: targetQuizQuestions,
@@ -1544,6 +1537,7 @@ class GeminiService {
 
         const recoveryDraft = await this.callModel(recoveryPrompt, { maxOutputTokens: recoveryPassTokens });
         const recoveryQuality = this.evaluateQuality(command, recoveryDraft, {
+          userInput,
           roadmapWeeks: targetRoadmapWeeks,
           studyPlanWeeks: targetStudyPlanWeeks,
           quizQuestions: targetQuizQuestions,
