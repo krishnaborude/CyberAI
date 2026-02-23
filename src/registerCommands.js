@@ -16,8 +16,10 @@ async function registerCommands() {
       Routes.applicationGuildCommands(config.discord.clientId, config.discord.guildId),
       { body: commands }
     );
-    logger.info('Registered guild slash commands', { guildId: config.discord.guildId, count: commands.length });
-    return;
+    logger.info('Registered guild slash commands', {
+      guildId: config.discord.guildId,
+      count: commands.length
+    });
   }
 
   await rest.put(Routes.applicationCommands(config.discord.clientId), { body: commands });
