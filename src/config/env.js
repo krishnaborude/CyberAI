@@ -30,12 +30,27 @@ function asStringList(name, fallback = []) {
     .filter(Boolean);
 }
 
+function asEnum(name, fallback, allowedValues) {
+  const raw = process.env[name];
+  if (!raw || !raw.trim()) return fallback;
+
+  const value = raw.trim().toLowerCase();
+  if (!allowedValues.includes(value)) {
+    throw new Error(
+      `Environment variable ${name} must be one of: ${allowedValues.join(', ')}.`
+    );
+  }
+
+  return value;
+}
+
 const config = {
   nodeEnv: process.env.NODE_ENV || 'development',
   discord: {
     token: required('DISCORD_TOKEN'),
     clientId: required('DISCORD_CLIENT_ID'),
-    guildId: process.env.DISCORD_GUILD_ID || null
+    guildId: process.env.DISCORD_GUILD_ID || null,
+    commandScope: asEnum('DISCORD_COMMAND_SCOPE', 'global', ['global', 'guild', 'both'])
   },
   serper: {
     // Optional. If missing, /labs will fall back to the local curated catalog.
