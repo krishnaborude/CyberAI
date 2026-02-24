@@ -127,6 +127,7 @@ npm run dev
 | `DISCORD_TOKEN` | Yes | Discord bot token |
 | `DISCORD_CLIENT_ID` | Yes | Discord application client ID |
 | `DISCORD_GUILD_ID` | No | Guild-scoped command registration |
+| `DISCORD_COMMAND_SCOPE` | No | `global` (default, DM + server), `guild` (server only), or `both` |
 | `GEMINI_API_KEY` | Yes | Primary Gemini API key |
 | `SERPER_API_KEY` | No | Search API key for `/labs` and `/resource` |
 
