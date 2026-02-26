@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const { sanitizeUserInput, hasPromptInjection, validateUserInput } = require('../utils/inputGuard');
 const { smartSplitMessage } = require('../utils/smartSplitMessage');
 const { sendChunkedResponse } = require('../utils/discordResponse');
@@ -138,14 +138,14 @@ module.exports = {
 
     const validation = validateUserInput(query, { required: true });
     if (!validation.valid) {
-      await ctx.interaction.reply({ content: validation.reason, ephemeral: true });
+      await ctx.interaction.reply({ content: validation.reason, flags: MessageFlags.Ephemeral });
       return;
     }
 
     if (hasPromptInjection(query)) {
       await ctx.interaction.reply({
         content: 'Unsafe input pattern detected. Please provide a normal cyber topic.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -155,7 +155,7 @@ module.exports = {
       const retryAfterSec = Math.ceil(rate.retryAfterMs / 1000);
       await ctx.interaction.reply({
         content: `Rate limit reached. Please wait ${retryAfterSec}s before sending another request.`,
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -163,7 +163,7 @@ module.exports = {
     if (!ctx.services.resourceSearch?.hasApiKey?.()) {
       await ctx.interaction.reply({
         content: 'Live resource search is not configured. Set SERPER_API_KEY (or SERPER_API_KEY_2) in .env and restart the bot.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -254,6 +254,8 @@ module.exports = {
     }
 
     const lines = [];
+    lines.push(`**User Input:** ${query}`);
+    lines.push('');
     lines.push(`Cyber resources for: ${query}`);
     lines.push(`Filter: ${typeLabel(type)} | Count: ${limit}`);
     lines.push('');

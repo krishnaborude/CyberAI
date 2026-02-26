@@ -1,5 +1,72 @@
 const CODE_BLOCK_REGEX = /```[\s\S]*?```/g;
 
+function normalizeFencedCodeBlocks(input) {
+  if (typeof input !== 'string' || !input.includes('```')) return input;
+
+  // Ensure fences start on a new line when model output appends them inline.
+  let text = input.replace(/([^\n])```/g, '$1\n```');
+  const lines = text.split('\n');
+  const output = [];
+  let inFence = false;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+
+    if (!trimmed.startsWith('```')) {
+      output.push(rawLine);
+      continue;
+    }
+
+    // Normalize indentation/spacing around fence lines for Discord markdown.
+    const afterFence = trimmed.slice(3).trim();
+
+    if (!inFence) {
+      // Opening fence.
+      if (!afterFence) {
+        output.push('```');
+      } else if (/^[a-z0-9_+-]+$/i.test(afterFence)) {
+        output.push(`\`\`\`${afterFence}`);
+      } else {
+        // If content was appended on the same line as opening fence, move it below.
+        output.push('```');
+        output.push(afterFence);
+      }
+      inFence = true;
+      continue;
+    }
+
+    // Closing fence.
+    output.push('```');
+    inFence = false;
+    if (afterFence) {
+      output.push(afterFence);
+    }
+  }
+
+  const normalizedLines = [];
+  let previousWasClosingFence = false;
+  for (const line of output) {
+    if (/^[ \t]+$/.test(line)) {
+      normalizedLines.push('');
+      previousWasClosingFence = false;
+      continue;
+    }
+
+    const trimmed = line.trim();
+    if (previousWasClosingFence && /^[ \t]{4,}\S/.test(line)) {
+      normalizedLines.push(line.trimStart());
+    } else {
+      normalizedLines.push(line);
+    }
+    previousWasClosingFence = trimmed === '```';
+  }
+
+  text = normalizedLines.join('\n');
+
+  // Ensure prose doesn't continue on the same line right after a closing fence.
+  return text.replace(/```([ \t]+)(?=\S)/g, '```\n');
+}
+
 function restorePlaceholders(input, placeholders) {
   let text = input;
   for (const [token, value] of placeholders.entries()) {
@@ -53,7 +120,7 @@ function formatTableAsDiscordList(headers, rows) {
     for (let i = 1; i < cleanedHeaders.length; i += 1) {
       const value = row[i];
       if (!value) continue;
-      lines.push(`  **${cleanedHeaders[i]}:** ${value}`);
+      lines.push(`- **${cleanedHeaders[i]}:** ${value}`);
     }
 
     return lines.join('\n');
@@ -188,11 +255,71 @@ function trimVerboseRefusalPreface(text) {
   return trimmed.replace(/^I\s+can,\s+however,\s*/i, '').trim();
 }
 
-function formatGenericMarkdown(input) {
+function normalizeDiscordListAndHeadingMarkdown(input) {
+  if (typeof input !== 'string' || !input.trim()) return input;
+
+  const sourceLines = input.split('\n');
+  const normalized = sourceLines.map((line) => {
+    let value = String(line || '').replace(/\t/g, '  ').trimEnd();
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+
+    // Normalize common bullet markers and unknown symbols before numbered items.
+    value = value.replace(/^\s*(?:\u2022|[-*])\s+/, '- ');
+    value = value.replace(/^\s*[^\w\s#`-]\s*(\d+[.)]?)\s*$/, '$1.');
+    value = value.replace(/^\s*[^\w\s#`-]\s*(\d+[.)])\s+/, '$1 ');
+
+    // Repair malformed section labels like "Manual Testing Steps:*".
+    value = value.replace(/^\s*([^*\n][^:\n]{2,120}):\*\s*$/i, '**$1:**');
+    value = value.replace(/^\s*\*\*([^*\n]{2,120}):\*\s*$/i, '**$1:**');
+    value = value.replace(/^(\s*\d+[.)]\s+)([^*\n:]{2,120}):\*\*(\s+)/i, '$1**$2:**$3');
+
+    // Normalize numbered markers that appear as isolated lines.
+    value = value.replace(/^\s*[-*]\s*(\d+)[.)]?\s*$/, '$1.');
+    value = value.replace(/^\s*(\d+)\)\s*$/, '$1.');
+    value = value.replace(/^\s*(\d+)\.(\S)/, '$1. $2');
+    value = value.replace(/^\s*(\d+)\.\s*\.\s*$/, '$1.');
+
+    return value;
+  });
+
+  const output = [];
+  for (let i = 0; i < normalized.length; i += 1) {
+    const current = normalized[i];
+    const currentTrimmed = current.trim();
+
+    if (/^\d+\.$/.test(currentTrimmed) && i + 1 < normalized.length) {
+      const next = normalized[i + 1] || '';
+      const nextTrimmed = next.trim();
+      const nextStartsNewBlock = (
+        !nextTrimmed
+        || /^[-*]\s+/.test(nextTrimmed)
+        || /^\d+[.)]\s+/.test(nextTrimmed)
+        || /^#{1,6}\s+/.test(nextTrimmed)
+        || /^`{3}/.test(nextTrimmed)
+      );
+
+      if (!nextStartsNewBlock) {
+        output.push(currentTrimmed + ' ' + nextTrimmed);
+        i += 1;
+        continue;
+      }
+    }
+
+    output.push(current);
+  }
+
+  let normalizedText = output.join('\n');
+  normalizedText = normalizedText.replace(/^(\s*\d+[.)]\s+)([^*\n:]{2,120}):\*\*(\s+)/gmi, '$1**$2:**$3');
+  return normalizedText;
+}
+
+function formatGenericMarkdown(input, { preserveTables = false } = {}) {
   const raw = typeof input === 'string' ? input : '';
   if (!raw.trim()) return raw;
 
-  const { protectedText, placeholders } = protectCodeBlocks(raw.replace(/\r\n/g, '\n'));
+  const normalizedRaw = normalizeFencedCodeBlocks(raw.replace(/\r\n/g, '\n'));
+  const { protectedText, placeholders } = protectCodeBlocks(normalizedRaw);
   let text = trimVerboseRefusalPreface(protectedText.trim());
 
   // Drop leading "Disclaimer:" blocks (they're repetitive in Discord). Keep safety by other means.
@@ -234,7 +361,10 @@ function formatGenericMarkdown(input) {
   }
 
   // Discord does not render markdown pipe tables well; convert them to readable list blocks.
-  text = convertMarkdownTablesToDiscordLists(text);
+  // Some command outputs explicitly require table format, so allow preserving tables when needed.
+  if (!preserveTables) {
+    text = convertMarkdownTablesToDiscordLists(text);
+  }
 
   // Make payload/query snippets copyable by adding fenced code blocks after labeled lines.
   text = injectCopyableCodeBlocks(text);
@@ -244,8 +374,10 @@ function formatGenericMarkdown(input) {
 
   // Normalize common bullet markers at line start.
   text = text.replace(/(^|\n)\s*\*\s+(?=\S)/g, '$1- ');
-  text = text.replace(/(^|\n)\s*•\s+(?=\S)/g, '$1- ');
+  text = text.replace(/(^|\n)\s*\u2022\s+(?=\S)/g, '$1- ');
 
+  // Repair broken list/heading markdown patterns for cleaner Discord rendering.
+  text = normalizeDiscordListAndHeadingMarkdown(text);
   // Ensure a blank line before headings.
   text = text.replace(/([^\n])\n(#{1,6}\s+)/g, '$1\n\n$2');
 
@@ -306,6 +438,15 @@ function formatRedteamMarkdown(input) {
   // Promote common red-team section titles to headings if they aren't already.
   const sectionTitles = [
     'Authorization and Scope Assumptions',
+    'Discovery',
+    'Filter Analysis',
+    'Bypass Techniques (Lab-Safe, High-Level)',
+    'Internal Mapping',
+    'Metadata Extraction',
+    'Credential Abuse Paths (Authorized Simulation Only)',
+    'Pivot Potential',
+    'MITRE ATT&CK Mapping',
+    'Detection Evasion Notes (Defender View)',
     'Threat Model and Objective Mapping',
     'Attack Chain Simulation (High-Level, Lab-Safe)',
     'Safe Commands and Tooling for Authorized Environments',
@@ -333,9 +474,129 @@ function formatRedteamMarkdown(input) {
   return restorePlaceholders(text, placeholders);
 }
 
+function formatStudyPlanMarkdown(input) {
+  const raw = typeof input === 'string' ? input : '';
+  if (!raw.trim()) return raw;
+
+  const { protectedText, placeholders } = protectCodeBlocks(raw.replace(/\r\n/g, '\n'));
+  let text = protectedText.trim();
+
+  text = text.replace(/([^\n])\s*\*\s{2,}(?=[A-Z])/g, '$1\n- ');
+  text = text.replace(/(^|\n)\s*\*\s+(?=\S)/g, '$1- ');
+
+  const sectionTitles = [
+    'Overview Summary',
+    'Weekly Breakdown',
+    'Skills Progression Milestones',
+    'Recommended Lab Types',
+    'Practice Strategy',
+    'Review & Reinforcement Plan',
+    'Final Exam Readiness Checklist',
+    'Certification Alignment Notes'
+  ];
+  for (const title of sectionTitles) {
+    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(^|\\n)\\s*(?!#{1,6}\\s)${escaped}\\s*\\n`, 'g');
+    text = text.replace(re, `$1## ${title}\n`);
+  }
+
+  const weeklySectionRegex = /((?:^|\n)#{2,6}\s+Weekly Breakdown\s*\n)([\s\S]*?)(?=\n#{2,6}\s+|$)/i;
+  text = text.replace(weeklySectionRegex, (full, heading, body) => {
+    let normalized = typeof body === 'string' ? body.trim() : '';
+    if (!normalized) return `${heading}`;
+
+    // Normalize mixed bold label variants first (e.g., "**Focus:**", "** Focus: **").
+    normalized = normalized.replace(/\*\*\s*(Week|Focus|Objectives|Labs\/Practice|Deliverable)\s*:\s*\*\*/gi, '$1: ');
+    normalized = normalized.replace(/\*\*\s*(Week|Focus|Objectives|Labs\/Practice|Deliverable)\s*:\s*/gi, '$1: ');
+    normalized = normalized.replace(/(Week|Focus|Objectives|Labs\/Practice|Deliverable)\s*:\s*\*\*/gi, '$1: ');
+    normalized = normalized.replace(/(^|\n)\s*\*\*\s*(?=\n|$)/g, '$1');
+
+    // Repair collapsed label sequences such as "Week: 1Focus: ...Objectives: ...".
+    normalized = normalized.replace(/(?<!\n)(?=(Week|Focus|Objectives|Labs\/Practice|Deliverable)\s*:)/gi, '\n');
+
+    // Normalize to consistent bullet labels for Discord readability.
+    normalized = normalized.replace(/(^|\n)(?:-+\s*)?(?:\*\*)?\s*Week\s*:\s*(?:Week\s*)?(\d+)\s*(?:\*\*)?\s*/gi, '$1- **Week:** Week $2\n');
+    normalized = normalized.replace(/(^|\n)(?:-+\s*)?(?:\*\*)?\s*Focus\s*:\s*(?:\*\*)?\s*/gi, '$1- **Focus:** ');
+    normalized = normalized.replace(/(^|\n)(?:-+\s*)?(?:\*\*)?\s*Objectives\s*:\s*(?:\*\*)?\s*/gi, '$1- **Objectives:** ');
+    normalized = normalized.replace(/(^|\n)(?:-+\s*)?(?:\*\*)?\s*Labs\/Practice\s*:\s*(?:\*\*)?\s*/gi, '$1- **Labs/Practice:** ');
+    normalized = normalized.replace(/(^|\n)(?:-+\s*)?(?:\*\*)?\s*Deliverable\s*:\s*(?:\*\*)?\s*/gi, '$1- **Deliverable:** ');
+
+    normalized = normalized.replace(/\n{3,}/g, '\n\n').trim();
+    return `${heading}${normalized}\n`;
+  });
+
+  text = text.replace(/([^\n])\n(##\s+)/g, '$1\n\n$2');
+  text = text.replace(/\n{3,}/g, '\n\n').trim();
+
+  return restorePlaceholders(text, placeholders);
+}
+
+function normalizeExplainListFormatting(input) {
+  let text = typeof input === 'string' ? input : '';
+  if (!text.trim()) return text;
+
+  // Normalize alternate bullet glyphs to markdown dash bullets.
+  text = text.replace(/(^|\n)\s*[•●]\s+/g, '$1- ');
+
+  // Repair malformed mixed markers like "- 1." or "• 1." -> "1."
+  text = text.replace(/(^|\n)\s*(?:-|\*|[•●])\s*(\d+)\.\s*/g, '$1$2. ');
+
+  // Promote bare section labels inside chunks into small headings for readability.
+  text = text.replace(/(^|\n)\s*-\s*([A-Z][A-Za-z0-9/&() \-]{3,90}):\s*$/g, '$1### $2');
+
+  // Improve numbered step readability: "1. Name:" -> "1. **Name:**"
+  text = text.replace(/(^|\n)(\d+)\.\s*([A-Za-z][^:\n]{2,90}):\s*/g, '$1$2. **$3:** ');
+
+  // Ensure list/header markdown consistency.
+  text = normalizeDiscordListAndHeadingMarkdown(text);
+  text = text.replace(/([^\n])\n(###\s+)/g, '$1\n\n$2');
+  text = text.replace(/\n{3,}/g, '\n\n').trim();
+  return text;
+}
+
+function formatExplainMarkdown(input) {
+  const raw = typeof input === 'string' ? input : '';
+  if (!raw.trim()) return raw;
+
+  const expectedTitles = {
+    1: 'Concept Summary',
+    2: 'Foundational Basics',
+    3: 'Core Technical Breakdown',
+    4: 'Defensive Use Cases',
+    5: 'Safe Basic Commands (Authorized Lab Environments Only)'
+  };
+
+  const { protectedText, placeholders } = protectCodeBlocks(raw.replace(/\r\n/g, '\n'));
+  let text = protectedText.trim();
+
+  // Normalize plain "Chunk N/5: ..." lines into H2 headings for stable chunk parsing.
+  text = text.replace(
+    /(^|\n)\s*(?:[-*]\s+|\d+[).]\s+)?(?:#{1,6}\s*)?Chunk\s*([1-5])\s*\/\s*5\s*:?\s*([^\n]*)/gmi,
+    (match, prefix, numberRaw, titleRaw) => {
+      const number = Number.parseInt(numberRaw, 10);
+      const fallbackTitle = expectedTitles[number] || '';
+      const title = String(titleRaw || '').trim() || fallbackTitle;
+      return title
+        ? `${prefix}## Chunk ${number}/5: ${title}`
+        : `${prefix}## Chunk ${number}/5`;
+    }
+  );
+
+  // Ensure a blank line before headings for readability.
+  text = text.replace(/([^\n])\n(##\s+)/g, '$1\n\n$2');
+  text = normalizeExplainListFormatting(text);
+
+  // Collapse excessive blank lines.
+  text = text.replace(/\n{3,}/g, '\n\n').trim();
+
+  return restorePlaceholders(text, placeholders);
+}
+
 function formatResponseByCommand(command, text) {
   const base = formatGenericMarkdown(text);
   if (command === 'roadmap') return formatRoadmapMarkdown(base);
+  if (command === 'studyplan') return formatStudyPlanMarkdown(base);
+  if (command === 'explain') return formatExplainMarkdown(base);
   if (command === 'redteam') return formatRedteamMarkdown(base);
   return base;
 }

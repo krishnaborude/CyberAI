@@ -1,160 +1,153 @@
-# CyberAI Bot
+![CyberCortex - Ethical Cybersecurity Discord Bot](./assets/logo.png)
 
-CyberAI is a production-focused Discord bot that uses Gemini to provide **ethical cybersecurity learning assistance** through slash commands.
+# CyberCortex - Ethical Offensive Security Learning Assistant
 
-## 1) Architecture
+![Node.js](https://img.shields.io/badge/node-20%2B-green)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Status](https://img.shields.io/badge/status-active-success)
+![Security](https://img.shields.io/badge/design-secure--by--default-red)
+![Top Language](https://img.shields.io/github/languages/top/krishnaborude/CyberCortex?color=yellow)
+![Repo Views](https://komarev.com/ghpvc/?username=krishnaborude&repo=CyberCortex&label=repo%20views&color=0e75b6&style=flat)
 
-- **Discord Interface Layer**: `src/index.js` + `src/commands/*` handle slash interactions only.
-- **AI Service Layer**: `src/services/geminiService.js` contains prompt orchestration and Gemini API calls.
-- **Application Utilities**: `src/utils/*` provide input validation, prompt-injection checks, rate limiting, smart message chunking, and Discord reply helpers.
-- **Command System**: `src/handlers/commandHandler.js` dynamically loads command modules.
-- **Error Middleware**: `src/handlers/errorHandler.js` wraps command execution and sends safe user-facing failures.
-- **Config Layer**: `src/config/env.js` validates environment variables at startup.
+CyberCortex is a Discord bot that helps cybersecurity learners build structured, certification-aligned practice workflows while enforcing authorized-use boundaries.
 
-This separation keeps AI logic independent of Discord transport, so it can be reused later in a SaaS API/backend.
+## Abstract
+CyberCortex combines practical learning guidance, search-grounded recommendations, and safety-aware AI orchestration for offensive and defensive security education in authorized environments.
 
-## 2) Folder Structure
+## Why This Matters
+Many cybersecurity learners struggle with:
+- Structuring their study path for certifications
+- Knowing which labs to practice and in what order
+- Understanding full attack-chain methodology
+- Translating practice into professional reporting habits
+- Staying within ethical and authorized boundaries
 
+CyberCortex addresses these challenges by combining structured learning workflows with AI-driven personalization and safety enforcement.
+
+## Key Differentiators
+- Structured progression workflows (`/studyplan`, `/roadmap`) instead of one-off generic advice
+- Scope-aware red-team guidance with explicit authorization context (`/redteam`)
+- Certification-aligned weekly plans with exam-readiness and alignment notes
+- Search-grounded labs/resources/news with validated links, not hallucinated URLs
+- Discord-safe response chunking that preserves formatting and readability
+- Defensive awareness integrated into offensive-learning outputs
+
+## What You Can Do
+| Command | Value |
+|---|---|
+| `/studyplan` | Build certification-focused weekly prep plans |
+| `/roadmap` | Generate phased learning roadmaps for a target role/goal |
+| `/redteam` | Get authorized-scope red-team methodology guidance |
+| `/labs` | Find relevant lab platforms and challenge paths |
+| `/resource` | Curate useful articles, blogs, repos, books, and walkthroughs |
+| `/news` | Track cybersecurity developments with practical context |
+| `/quiz` | Practice with structured MCQ sets |
+| `/explain` | Break down security concepts into practical learning chunks |
+| `/tools` | Learn safe starter tooling and common setup pitfalls |
+
+## Documentation
+- [Architecture](docs/ARCHITECTURE.md)
+- [Command Specification](docs/COMMAND_SPEC.md)
+
+## Example Output (Study Plan Snippet)
 ```text
-cyberai-bot/
-  +-- src/
-  ¦   +-- commands/
-  ¦   ¦   +-- explain.js
-  ¦   ¦   +-- labs.js
-  ¦   ¦   +-- news.js
-  ¦   ¦   +-- quiz.js
-  ¦   ¦   +-- roadmap.js
-  ¦   ¦   +-- tools.js
-  ¦   +-- config/
-  ¦   ¦   +-- env.js
-  ¦   +-- handlers/
-  ¦   ¦   +-- commandHandler.js
-  ¦   ¦   +-- errorHandler.js
-  ¦   +-- services/
-  ¦   ¦   +-- geminiService.js
-  ¦   +-- utils/
-  ¦   ¦   +-- discordResponse.js
-  ¦   ¦   +-- inputGuard.js
-  ¦   ¦   +-- logger.js
-  ¦   ¦   +-- rateLimiter.js
-  ¦   ¦   +-- runAICommand.js
-  ¦   ¦   +-- smartSplitMessage.js
-  ¦   +-- index.js
-  ¦   +-- registerCommands.js
-  +-- .env.example
-  +-- package.json
-  +-- README.md
+Week 4 - Active Directory Fundamentals
+Focus: Enumeration and attack-path mapping
+Deliverable: AD topology report with identified escalation paths
+
+Certification Alignment:
+This mirrors enterprise engagement flow expected in practical certifications.
 ```
 
-## 3) Slash Commands
+## Responsible AI and Safety
+- Input validation and prompt-injection checks before model generation
+- Explicit scope gating for sensitive red-team style requests
+- Rate limiting to reduce abuse and control cost
+- Grounded selection for labs/resources/news (only links from fetched candidates)
+- Safety-focused output rules that avoid weaponized instructions
 
-- `/roadmap`
-- `/explain`
-- `/tools`
-- `/labs`
-- `/quiz`
-- `/news`
+## Security Testing Performed
+The current implementation and validation flow covers:
+- Prompt injection simulation attempts
+- Malicious scope bypass attempts for offensive commands
+- Rate limit behavior and retry-window handling
+- Oversized response chunk validation for Discord constraints
+- Null-input, malformed-input, and unsafe-pattern handling
 
-## 4) Security Controls
+## Known Limitations
+- Prompt injection detection is primarily rule-based.
+- Rate limiting is in-memory (Redis is better for horizontal scaling).
+- No persistent chat memory by design (privacy-first behavior).
+- Availability depends on external model and feed providers.
 
-- Input sanitization and validation (`src/utils/inputGuard.js`)
-- Basic prompt injection pattern blocking
-- In-memory per-user rate limiting (`src/utils/rateLimiter.js`)
-- Safe API error handling and masked internal failures
-- Secrets only via environment variables (`.env`, never commit keys)
-- Ethical-only system prompt constraints in AI service
+## Architecture At a Glance
+![High-level data flow: User -> Discord -> AI Service -> Safety Filter -> Response](./assets/image.png)
 
-## 5) Smart Message Splitting
+```text
+Discord Slash Command
+  -> Command Handler
+  -> Input Guard (sanitize + validate + injection checks)
+  -> Rate Limiter
+  -> Gemini Service (prompt orchestration + retries/fallback)
+  -> Response Formatter + Smart Split
+  -> Discord Reply/Follow-up
+```
 
-`src/utils/smartSplitMessage.js` exports:
+For deeper technical details, see `docs/ARCHITECTURE.md`.
 
-- `smartSplitMessage(text)`
+## Quick Start
+### Requirements
+- Node.js 20+
+- Discord bot token and application client ID
+- Gemini API key
 
-Behavior:
-- If output is `> 1900` chars, split by double newline first.
-- If still too long, split by sentence.
-- Protect fenced code blocks and avoid splitting inside them.
-- Multi-part responses add page headers like `?? CyberAI Response (1/3)`.
-- Hard cap ensures Discord-compatible chunks (`<= 2000`).
+### Setup
+1. Install dependencies:
+```bash
+npm install
+```
+2. Configure environment variables in `.env`.
+3. Register slash commands:
+```bash
+npm run register
+```
+4. Start the bot:
+```bash
+npm start
+```
 
-## 6) Installation
-
-1. Install Node.js LTS (Node 20+).
-2. Clone the project and open folder.
-3. Install dependencies:
-   ```bash
-   npm install
-   ```
-4. Create `.env` from `.env.example` and fill values.
-5. Register slash commands:
-   ```bash
-   npm run register
-   ```
-6. Start bot:
-   ```bash
-   npm start
-   ```
-
-For local development:
-
+Development mode:
 ```bash
 npm run dev
 ```
 
-## 7) Environment Variables
+## Environment Variables (Core)
+| Variable | Required | Description |
+|---|---|---|
+| `DISCORD_TOKEN` | Yes | Discord bot token |
+| `DISCORD_CLIENT_ID` | Yes | Discord application client ID |
+| `DISCORD_GUILD_ID` | No | Guild-scoped command registration |
+| `DISCORD_COMMAND_SCOPE` | No | `global` (default, DM + server), `guild` (server only), or `both` |
+| `GEMINI_API_KEY` | Yes | Primary Gemini API key |
+| `SERPER_API_KEY` | No | Search API key for `/labs` and `/resource` |
 
-```env
-DISCORD_TOKEN=
-DISCORD_CLIENT_ID=
-DISCORD_GUILD_ID=
-GEMINI_API_KEY=
-GEMINI_MODEL=gemini-2.5-flash
-GEMINI_FALLBACK_MODELS=gemini-flash-latest,gemini-2.0-flash
-NODE_ENV=development
-RATE_LIMIT_WINDOW_MS=60000
-RATE_LIMIT_MAX_REQUESTS=6
-MAX_PROMPT_CHARS=1200
-```
+Additional tuning vars are available in `src/config/env.js`.
 
-## 8) Deploy on VPS (24/7)
+## Community Impact
+CyberCortex is designed to help:
+- New learners build structured offensive methodology
+- Intermediate students prepare for practical certifications
+- Community members run exam-style simulation workflows in labs
+- Users learn responsibly within explicit authorized scope
 
-### Ubuntu example with PM2
+The goal is not automation, but disciplined security thinking.
 
-1. Install Node.js LTS and Git.
-2. Copy project to server.
-3. Install dependencies:
-   ```bash
-   npm ci --omit=dev
-   ```
-4. Create production `.env`.
-5. Register commands once:
-   ```bash
-   npm run register
-   ```
-6. Install PM2 and run app:
-   ```bash
-   npm i -g pm2
-   pm2 start src/index.js --name cyberai-bot
-   pm2 save
-   pm2 startup
-   ```
-7. Check logs:
-   ```bash
-   pm2 logs cyberai-bot
-   ```
+## Intended Use
+CyberCortex is for authorized learning environments:
+- Personal labs
+- CTF platforms
+- Internal approved simulation exercises
 
-### System hardening recommendations
+It is not intended for unauthorized real-world exploitation guidance.
 
-- Run bot as non-root user.
-- Restrict firewall to SSH only if bot does not expose HTTP ports.
-- Store `.env` with strict permissions (`chmod 600 .env`).
-- Rotate Discord and Gemini keys periodically.
-- Add external uptime monitoring (Uptime Kuma / Better Stack / Pingdom).
-
-## 9) Scaling Notes (10,000+ users)
-
-- Move rate limiting from memory to Redis for multi-instance deployments.
-- Add queueing/backpressure for AI calls.
-- Add command analytics and structured observability (e.g., OpenTelemetry).
-- Externalize chat/session context to database if personalized history is added.
-- Reuse `GeminiService` in an HTTP API service when migrating to SaaS architecture.
+CyberCortex demonstrates that AI can enhance cybersecurity education while maintaining safety, structure, and responsibility. It is built not as an exploit generator, but as a structured learning assistant for ethical practitioners.

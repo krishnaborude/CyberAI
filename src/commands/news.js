@@ -2,6 +2,7 @@
 const { sanitizeUserInput, hasPromptInjection, validateUserInput } = require('../utils/inputGuard');
 const { smartSplitMessage } = require('../utils/smartSplitMessage');
 const { sendChunkedResponse } = require('../utils/discordResponse');
+const { MessageFlags } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -11,7 +12,7 @@ module.exports = {
       option
         .setName('focus')
         .setDescription('Focus area (threat intel, ransomware, cloud, zero-days)')
-        .setRequired(false)
+        .setRequired(true)
     )
     .addStringOption((option) =>
       option
@@ -27,21 +28,20 @@ module.exports = {
     ),
 
   async execute(ctx) {
-    const rawFocus = ctx.interaction.options.getString('focus');
-    const focusInput = rawFocus ? sanitizeUserInput(rawFocus, { maxChars: 120 }) : '';
-    const focus = focusInput || 'general cybersecurity';
+    const rawFocus = ctx.interaction.options.getString('focus', true);
+    const focus = sanitizeUserInput(rawFocus, { maxChars: 120 });
     const tier = (ctx.interaction.options.getString('tier') || 'all').toLowerCase();
 
     const validation = validateUserInput(focus, { required: false });
     if (!validation.valid) {
-      await ctx.interaction.reply({ content: validation.reason, ephemeral: true });
+      await ctx.interaction.reply({ content: validation.reason, flags: MessageFlags.Ephemeral });
       return;
     }
 
     if (hasPromptInjection(focus)) {
       await ctx.interaction.reply({
         content: 'Unsafe input pattern detected. Please provide a normal news topic.',
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -51,7 +51,7 @@ module.exports = {
       const retryAfterSec = Math.ceil(rate.retryAfterMs / 1000);
       await ctx.interaction.reply({
         content: `Rate limit reached. Please wait ${retryAfterSec}s before sending another request.`,
-        ephemeral: true
+        flags: MessageFlags.Ephemeral
       });
       return;
     }
@@ -61,7 +61,10 @@ module.exports = {
     // Fetch a larger pool from RSS, then let Gemini select + tier the final items (with heuristic fallback).
     const seed = await ctx.services.news.getLatestNews({ focus, limit: 24 });
     const newsData = await ctx.services.news.selectAndEnrich({ ...seed, limit: 7, tier });
-    const response = ctx.services.news.formatDigest(newsData);
+    const body = ctx.services.news.formatDigest(newsData);
+    const response = [`**User Input:** ${focus}`, '', body]
+      .filter(Boolean)
+      .join('\n');
     const chunks = smartSplitMessage(response);
 
     await sendChunkedResponse(ctx.interaction, chunks);

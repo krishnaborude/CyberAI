@@ -1,5 +1,5 @@
 const path = require('node:path');
-const { Client, Events, GatewayIntentBits } = require('discord.js');
+const { Client, Events, GatewayIntentBits, MessageFlags } = require('discord.js');
 const config = require('./config/env');
 const logger = require('./utils/logger');
 const RateLimiter = require('./utils/rateLimiter');
@@ -34,7 +34,7 @@ client.services = {
 client.rateLimiter = new RateLimiter(config.rateLimit);
 
 client.once(Events.ClientReady, (readyClient) => {
-  logger.info('CyberAI bot is online', {
+  logger.info('CyberCortex bot is online', {
     user: readyClient.user.tag,
     commandsLoaded: client.commands.size,
     env: config.nodeEnv
@@ -42,13 +42,35 @@ client.once(Events.ClientReady, (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isAutocomplete()) {
+    const command = client.commands.get(interaction.commandName);
+    if (!command?.autocomplete) return;
+
+    try {
+      await command.autocomplete({
+        interaction,
+        services: client.services,
+        rateLimiter: client.rateLimiter,
+        config,
+        logger
+      });
+    } catch (error) {
+      logger.error('Autocomplete execution failed', {
+        command: interaction.commandName,
+        userId: interaction.user?.id,
+        error: error?.message || String(error)
+      });
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const command = client.commands.get(interaction.commandName);
   if (!command) {
     await interaction.reply({
       content: 'Command not found. Please re-register slash commands.',
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     });
     return;
   }

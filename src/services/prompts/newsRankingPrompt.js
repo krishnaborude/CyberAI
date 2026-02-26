@@ -5,7 +5,7 @@ function buildNewsRankingPrompt({
   ctx
 }) {
   return [
-    'You are CyberAI, a cybersecurity news editor.',
+    'You are CyberCortex, a cybersecurity news editor.',
     '',
     'Task: from the provided RSS items, pick the most relevant stories to the given focus.',
     'You MUST ONLY use the provided items and MUST NOT invent any new links.',

@@ -1,4 +1,4 @@
-﻿const CODE_BLOCK_REGEX = /```[\s\S]*?```/g;
+const CODE_BLOCK_REGEX = /```[\s\S]*?```/g;
 const SPLIT_TRIGGER = 1900;
 const TARGET_CHUNK_SIZE = 1600;
 const HARD_MAX = 1900;
@@ -94,6 +94,17 @@ function packSegments(segments, maxLen) {
       continue;
     }
 
+    // If a heading section is too large, split by paragraph boundaries first
+    // to avoid cutting structured rows/lists in awkward places.
+    const paragraphParts = splitByParagraphs(segment);
+    if (paragraphParts.length > 1) {
+      const subChunks = packSegments(paragraphParts, maxLen);
+      if (subChunks.length > 0) {
+        chunks.push(...subChunks);
+        continue;
+      }
+    }
+
     const sentenceParts = splitBySentence(segment);
     if (sentenceParts.length === 0) {
       chunks.push(segment.slice(0, maxLen));
@@ -102,7 +113,7 @@ function packSegments(segments, maxLen) {
 
     let sentenceChunk = '';
     for (const sentence of sentenceParts) {
-      const sentenceCandidate = sentenceChunk ? `${sentenceChunk} ${sentence}` : sentence;
+      const sentenceCandidate = sentenceChunk ? `${sentenceChunk}\n${sentence}` : sentence;
       if (sentenceCandidate.length <= maxLen) {
         sentenceChunk = sentenceCandidate;
       } else {
@@ -158,13 +169,105 @@ function forceMinimumChunks(text, minChunks) {
     segments = splitBySentence(protectedText);
   }
 
-  const targetSize = Math.max(700, Math.ceil(protectedText.length / minChunks));
+  const minTargetSize = minChunks >= 4 ? 220 : 700;
+  const targetSize = Math.max(minTargetSize, Math.ceil(protectedText.length / minChunks));
   const packed = packSegments(segments, Math.min(targetSize, TARGET_CHUNK_SIZE));
 
   return packed
     .map((chunk) => restorePlaceholders(chunk, placeholders))
     .map((chunk) => chunk.trim())
     .filter(Boolean);
+}
+
+function splitBalanced(parts, separator, targetLen) {
+  if (!Array.isArray(parts) || parts.length < 2) return [];
+  const clean = parts.map((part) => part.trim()).filter(Boolean);
+  if (clean.length < 2) return [];
+
+  let index = 1;
+  let currentLen = clean[0].length;
+  while (index < clean.length - 1 && currentLen + separator.length + clean[index].length < targetLen) {
+    currentLen += separator.length + clean[index].length;
+    index += 1;
+  }
+
+  const left = clean.slice(0, index).join(separator).trim();
+  const right = clean.slice(index).join(separator).trim();
+  if (!left || !right) return [];
+  return [left, right];
+}
+
+function splitChunkForMinimum(chunk) {
+  if (typeof chunk !== 'string' || chunk.length < 2) return [chunk];
+
+  const { protectedText, placeholders } = protectCodeBlocks(chunk);
+  const targetLen = Math.max(120, Math.floor(protectedText.length / 2));
+
+  const paragraphParts = splitBalanced(splitByParagraphs(protectedText), '\n\n', targetLen);
+  if (paragraphParts.length === 2) {
+    return paragraphParts.map((part) => restorePlaceholders(part, placeholders).trim()).filter(Boolean);
+  }
+
+  const sentenceParts = splitBalanced(splitBySentence(protectedText), '\n', targetLen);
+  if (sentenceParts.length === 2) {
+    return sentenceParts.map((part) => restorePlaceholders(part, placeholders).trim()).filter(Boolean);
+  }
+
+  const lineParts = splitBalanced(
+    protectedText.split('\n').map((line) => line.trim()).filter(Boolean),
+    '\n',
+    targetLen
+  );
+  if (lineParts.length === 2) {
+    return lineParts.map((part) => restorePlaceholders(part, placeholders).trim()).filter(Boolean);
+  }
+
+  if (/__CODE_BLOCK_\d+__/.test(protectedText)) {
+    return [chunk];
+  }
+
+  const midpoint = Math.floor(protectedText.length / 2);
+  const forward = protectedText.indexOf(' ', midpoint);
+  const backward = protectedText.lastIndexOf(' ', midpoint);
+  const cut = backward > 0 ? backward : (forward > 0 ? forward : midpoint);
+  const left = protectedText.slice(0, cut).trim();
+  const right = protectedText.slice(cut).trim();
+  if (!left || !right) return [chunk];
+  return [
+    restorePlaceholders(left, placeholders).trim(),
+    restorePlaceholders(right, placeholders).trim()
+  ].filter(Boolean);
+}
+
+function ensureMinimumChunkCount(chunks, minChunks) {
+  if (!Array.isArray(chunks) || chunks.length >= minChunks) return chunks;
+
+  const expanded = [...chunks];
+  let guard = 0;
+  const maxIterations = Math.max(12, minChunks * 8);
+
+  while (expanded.length < minChunks && guard < maxIterations) {
+    guard += 1;
+    let largestIndex = -1;
+    let largestLen = 0;
+
+    for (let i = 0; i < expanded.length; i += 1) {
+      const len = typeof expanded[i] === 'string' ? expanded[i].length : 0;
+      if (len > largestLen) {
+        largestLen = len;
+        largestIndex = i;
+      }
+    }
+
+    if (largestIndex < 0 || largestLen < 2) break;
+
+    const pieces = splitChunkForMinimum(expanded[largestIndex]);
+    if (!Array.isArray(pieces) || pieces.length < 2) break;
+
+    expanded.splice(largestIndex, 1, ...pieces);
+  }
+
+  return expanded;
 }
 
 function enforceHardLimit(chunks) {
@@ -203,7 +306,7 @@ function enforceHardLimit(chunks) {
   return safeChunks;
 }
 
-function mergeChunksForReadability(chunks, maxChunks) {
+function mergeChunksForReadability(chunks, maxChunks, minChunks = 1) {
   if (!Array.isArray(chunks) || chunks.length <= 1) return chunks;
 
   const merged = [...chunks];
@@ -214,7 +317,7 @@ function mergeChunksForReadability(chunks, maxChunks) {
   };
 
   let changed = true;
-  while (changed) {
+  while (changed && merged.length > minChunks) {
     changed = false;
     for (let i = 0; i < merged.length - 1; i += 1) {
       const combinedLen = merged[i].length + 2 + merged[i + 1].length;
@@ -242,7 +345,7 @@ function mergeChunksForReadability(chunks, maxChunks) {
     mergePair(bestIndex);
   }
 
-  if (merged.length > 1) {
+  if (merged.length > minChunks && merged.length > 1) {
     const last = merged.length - 1;
     const combineTail = merged[last - 1].length + 2 + merged[last].length;
     if (merged[last].length < 280 && combineTail <= HARD_MAX) {
@@ -275,17 +378,18 @@ function smartSplitMessage(input, options = {}) {
 
   let finalized = enforceHardLimit(restored);
 
-  if (finalized.length < minChunks && text.length > 900) {
+  if (finalized.length < minChunks) {
     finalized = enforceHardLimit(forceMinimumChunks(text, minChunks));
   }
 
-  finalized = mergeChunksForReadability(finalized, maxChunks);
+  finalized = ensureMinimumChunkCount(finalized, minChunks);
+  finalized = mergeChunksForReadability(finalized, maxChunks, minChunks);
 
   if (finalized.length <= 1) return finalized;
   if (!addPageHeader) return finalized;
 
   return finalized.map((chunk, index) => {
-    const page = `**\u{1F4D8} CyberAI Response (${index + 1}/${finalized.length})**`;
+    const page = `**\u{1F4D8} CyberCortex Response (${index + 1}/${finalized.length})**`;
     return `${page}\n\n${chunk}`;
   });
 }

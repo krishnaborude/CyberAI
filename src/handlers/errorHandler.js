@@ -1,3 +1,5 @@
+const { MessageFlags } = require('discord.js');
+
 async function safeExecute(interaction, fn, logger) {
   try {
     await fn();
@@ -10,7 +12,7 @@ async function safeExecute(interaction, fn, logger) {
 
     const payload = {
       content: 'An internal error occurred while processing your request. Please try again in a moment.',
-      ephemeral: true
+      flags: MessageFlags.Ephemeral
     };
 
     if (interaction.deferred || interaction.replied) {

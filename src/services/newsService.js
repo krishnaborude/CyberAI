@@ -174,7 +174,7 @@ class NewsService {
       const response = await fetch(feed.url, {
         signal: controller.signal,
         headers: {
-          'User-Agent': 'CyberAI-DiscordBot/1.0'
+          'User-Agent': 'CyberCortex-DiscordBot/1.0'
         }
       });
 
@@ -237,7 +237,7 @@ class NewsService {
     try {
       const response = await fetch(this.cisaIcsIndexUrl, {
         signal: controller.signal,
-        headers: { 'User-Agent': 'CyberAI-DiscordBot/1.0' }
+        headers: { 'User-Agent': 'CyberCortex-DiscordBot/1.0' }
       });
       if (!response.ok) throw new Error(`ICS index request failed (${response.status})`);
 
@@ -261,7 +261,7 @@ class NewsService {
         try {
           const pageResp = await fetch(url, {
             signal: pageController.signal,
-            headers: { 'User-Agent': 'CyberAI-DiscordBot/1.0' }
+            headers: { 'User-Agent': 'CyberCortex-DiscordBot/1.0' }
           });
           if (!pageResp.ok) throw new Error(`ICS advisory request failed (${pageResp.status})`);
 
